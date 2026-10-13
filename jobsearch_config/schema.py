@@ -207,6 +207,9 @@ class JobPreferences:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+_LEGACY_USER_AGENTS = {"JobSearchDashboard/2.0 (personal local tracker)", "JobSearchDashboard/1.0 (personal local tracker)"}
+
+
 @dataclass
 class SearchSettings:
     """Cross-site behaviour of the search engine."""
@@ -214,13 +217,16 @@ class SearchSettings:
     timeout_seconds: int = 15
     strict_filtering: bool = True  # drop listings that fail hard filters (vs. only rank lower)
     dedupe_by_url: bool = True
-    user_agent: str = "JobSearchDashboard/2.0 (personal local tracker)"
+    # Conventional crawler format: identifies the app (robots.txt token "JobSearchDashboard") without pretending to be a browser.
+    user_agent: str = "Mozilla/5.0 (compatible; JobSearchDashboard/2.0; personal job tracker)"
 
     def __post_init__(self) -> None:
         self.timeout_seconds = max(3, min(int(self.timeout_seconds or 15), 120))
         self.strict_filtering = bool(self.strict_filtering)
         self.dedupe_by_url = bool(self.dedupe_by_url)
         self.user_agent = str(self.user_agent or SearchSettings.user_agent)
+        if self.user_agent in _LEGACY_USER_AGENTS:
+            self.user_agent = SearchSettings.user_agent
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "SearchSettings":

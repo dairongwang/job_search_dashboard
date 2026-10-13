@@ -22,7 +22,7 @@ _GLOBAL_LOCATIONS = {"", "worldwide", "anywhere", "global", "remote", "internati
 
 # Loose synonyms so "United States" matches "USA" / "US" and so on.
 _LOCATION_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "united states": ("usa", "u.s.", "u.s.a", "us only", "us-based", "united states", "america", "north america"),
+    "united states": ("usa", "us", "u.s.", "u.s.a", "us only", "us-based", "united states", "america", "north america"),
     "usa": ("usa", "u.s.", "united states", "us only", "us-based", "north america"),
     "us": ("usa", "u.s.", "united states", "us only", "us-based"),
     "united kingdom": ("uk", "u.k.", "united kingdom", "england", "scotland", "wales", "london", "britain"),
@@ -48,13 +48,15 @@ _US_STATES = {
 class Match:
     score: int = 0
     passed: bool = True
-    reasons: list[str] = field(default_factory=list)  # failed hard filters
+    reasons: list[str] = field(default_factory=list)  # failed hard filters, with detail
+    kinds: list[str] = field(default_factory=list)  # failed hard filters, by category (for summaries)
     matched_skills: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # soft signals, for the UI
 
-    def fail(self, reason: str) -> None:
+    def fail(self, reason: str, kind: str = "") -> None:
         self.passed = False
         self.reasons.append(reason)
+        self.kinds.append(kind or reason)
 
 
 def _word_in(needle: str, haystack: str) -> bool:
@@ -98,6 +100,48 @@ def _matches_location(job_location: str, pref_location: str) -> bool:
     return False
 
 
+_US_CITIES = {
+    "new york", "nyc", "los angeles", "chicago", "houston", "phoenix", "philadelphia", "philly", "san antonio", "san diego",
+    "dallas", "san jose", "austin", "jacksonville", "san francisco", "columbus", "charlotte", "indianapolis", "seattle",
+    "denver", "washington dc", "boston", "nashville", "detroit", "portland", "las vegas", "baltimore", "milwaukee",
+    "atlanta", "miami", "minneapolis", "pittsburgh", "raleigh", "salt lake city", "st. louis", "kansas city", "cleveland",
+}
+_COUNTRY_SYNONYMS_FOR_IMPLIED = {
+    "united states": _LOCATION_SYNONYMS["united states"],
+    "united kingdom": _LOCATION_SYNONYMS["united kingdom"],
+    "canada": _LOCATION_SYNONYMS["canada"],
+}
+_UK_HINTS = {"london", "manchester", "birmingham", "edinburgh", "glasgow", "leeds", "bristol", "england", "scotland", "wales"}
+_CA_PROVINCES = {"on", "bc", "ab", "qc", "mb", "sk", "ns", "nb", "nl", "pe", "ontario", "british columbia", "alberta", "quebec"}
+
+
+def implied_countries(pref_location: str) -> list[str]:
+    """Countries implied by a city/state, e.g. 'Philadelphia, PA' -> ['united states'].
+
+    Used so that remote roles restricted to a country still match someone who
+    only listed a city in that country.
+    """
+    tokens = set(location_tokens(pref_location))
+    parts = {p.strip() for p in re.split(r"[,/;]", pref_location.lower())}
+    countries: list[str] = []
+    if tokens & _US_STATES or parts & _US_CITIES:
+        countries.append("united states")
+    if parts & _UK_HINTS:
+        countries.append("united kingdom")
+    if parts & _CA_PROVINCES:
+        countries.append("canada")
+    return countries
+
+
+def _matches_implied_country(job_location: str, pref_location: str) -> bool:
+    hay = job_location.lower()
+    for country in implied_countries(pref_location):
+        for token in _COUNTRY_SYNONYMS_FOR_IMPLIED[country]:
+            if (len(token) <= 3 and _word_in(token, hay)) or (len(token) > 3 and token in hay):
+                return True
+    return False
+
+
 def _wants_any_remote(prefs: JobPreferences) -> bool:
     return any(loc.strip().lower() in {"remote", "anywhere", "worldwide", "global"} for loc in prefs.locations)
 
@@ -112,6 +156,8 @@ def check_location(job: Job, prefs: JobPreferences) -> tuple[bool, bool]:
         loc = job.location.lower().strip()
         if loc in _GLOBAL_LOCATIONS or _wants_any_remote(prefs):
             return True, False
+        if any(_matches_implied_country(job.location, pref) for pref in prefs.locations):
+            return True, False  # remote role open to the country the user's city is in
     if not job.location:
         return True, False  # unknown location: keep, let the user judge
     return False, False
@@ -155,38 +201,38 @@ def evaluate(job: Job, prefs: JobPreferences, today: date | None = None) -> Matc
     # --- hard filters -------------------------------------------------------
     for word in prefs.exclude_keywords:
         if _word_in(word, text):
-            match.fail(f"excluded keyword '{word}'")
+            match.fail(f"excluded keyword '{word}'", "excluded keyword")
             break
 
     if job.job_type:
         if job.job_type not in prefs.job_types:
-            match.fail(f"job type {job.job_type}")
+            match.fail(f"job type {job.job_type}", "job type")
     elif not prefs.include_unknown_job_type:
-        match.fail("job type unknown")
+        match.fail("job type unknown", "job type unknown")
     if job.schedule and job.schedule not in prefs.schedules:
-        match.fail(f"schedule {job.schedule}")
+        match.fail(f"schedule {job.schedule}", "schedule")
 
     if job.workplace and job.workplace not in prefs.workplaces:
-        match.fail(f"workplace {job.workplace}")
+        match.fail(f"workplace {job.workplace}", "workplace")
 
     loc_ok, loc_explicit = check_location(job, prefs)
     if not loc_ok:
-        match.fail(f"location '{job.location}'")
+        match.fail(f"location '{job.location}'", "location")
 
     sal_ok, sal_note = check_salary(job, prefs)
     if not sal_ok:
-        match.fail("salary " + sal_note)
+        match.fail("salary " + sal_note, "salary " + sal_note)
     if sal_note:
         match.notes.append(f"salary {sal_note}")
 
     age = job.age_days(today)
     if prefs.posted_within_days and age is not None and age > prefs.posted_within_days:
-        match.fail(f"posted {age} days ago")
+        match.fail(f"posted {age} days ago", "posted too long ago")
 
     matched = [skill for skill in prefs.skills if _word_in(skill, text)]
     match.matched_skills = matched
     if prefs.min_skill_matches and len(matched) < prefs.min_skill_matches:
-        match.fail(f"only {len(matched)} of {prefs.min_skill_matches} required skills")
+        match.fail(f"only {len(matched)} of {prefs.min_skill_matches} required skills", "too few skills")
 
     # --- score ----------------------------------------------------------------
     score = 0

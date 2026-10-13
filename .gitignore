@@ -82,6 +82,7 @@ Thumbs.db
 # =========================
 # Personal configuration and data stay local; the example config is committed.
 config/job_search_config.json
+config/site_registry.json
 config/*.bak
 *.db
 data/

@@ -38,10 +38,24 @@ Built-in adapters, no scraping — public APIs only:
 | Adzuna | yes (free) | keyword, location, salary, permanent/contract, full/part-time, age | best fit for on-site roles |
 | Reed (UK) | yes (free) | keyword, location, salary, permanent/contract/temp, full/part-time | |
 | USAJOBS | yes (free) | keyword, location, minimum salary | US federal |
+| **Company careers platforms** — Workday, Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workable | no | keyword / facets where supported | public job APIs of the platforms behind most company careers pages (e.g. Yahoo → Workday); found automatically by *Investigate* |
 | **RSS / Atom feed** | — | — | any board or careers page that publishes a feed |
 | **Generic JSON API** | — | — | any endpoint, with a dotted-path field mapping |
+| **Web page (HTML)** | — | — | any careers/board page: schema.org JobPosting data, job-link following, CSS selectors; JavaScript-rendered pages are loaded in a real headless browser (optional Playwright); **search-form recipes** drive the page's own keyword / category / country / brand controls and its *Find jobs* button; honours robots.txt |
 
 Anything a site cannot filter server-side is filtered locally after fetching, so results behave the same across sites. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for details.
+
+### Investigating a careers URL
+
+`python -m jobsearch_sources investigate <url> [--render]` (or *Investigate a careers URL* in the configuration dashboard) reports whether robots.txt allows the page, whether the host answers scripts, which platform powers it, what job data the page carries, and the search-form controls it offers — and suggests a ready-to-add site. See [docs/CRAWLABLE_SITES.md](docs/CRAWLABLE_SITES.md) for the findings and a Yahoo walkthrough.
+
+### Site registry and access policy
+
+Every custom site (feed, JSON, web page) is checked against — and recorded in — a **site registry** (`config/site_registry.json`): one row per host with `status`, `active`, `message`, `created_at`, `updated_at`, check count and last URL. Rows are updated by every *Test this site now*, every URL check on creation, and every search. A host that forbids automated access (HTTP 401/403, robots.txt disallow, known terms) becomes **inactive**: the saved warning is shown, the site cannot be added or enabled, and searches skip it until a re-check succeeds (Configuration dashboard → *Site registry*).
+
+The web-page reader is as capable as a person's browser where the site allows it: real Chromium rendering for JavaScript boards, job-link following, pagination, polite delays. It **does not** spoof browser fingerprints, solve CAPTCHA/bot-protection challenges, or retry under another identity after a 403 — that is the conduct courts have treated as unauthorized access (*Craigslist v. 3Taps*), and a 403 is the site's answer. Indeed, Monster, LinkedIn, Glassdoor and Craigslist are seeded as inactive for that reason; Adzuna carries much of the same inventory and is a supported provider.
+
+Optional browser rendering: `make browser` (or `pip install -r requirements-browser.txt && python -m playwright install chromium`); Docker: `WITH_BROWSER=1 docker compose build`.
 
 ## Run it locally
 
@@ -92,6 +106,7 @@ Both containers mount `./data` (config JSON + SQLite DB). Secrets never need to 
 | Variable | Default | Used by |
 |---|---|---|
 | `JOB_SEARCH_CONFIG` | `config/job_search_config.json` | both dashboards, CLI |
+| `JOB_SEARCH_REGISTRY` | `site_registry.json` next to the config | both dashboards (site registry) |
 | `JOB_SEARCH_DB` | `job_search.db` next to `app.py` | main app |
 | `JOB_SEARCH_CONFIG_URL` | `http://localhost:8502` | main app (link to the config UI) |
 | `JOB_SEARCH_APP_URL` | `http://localhost:8501` | config UI (link back) |
@@ -103,13 +118,17 @@ Both containers mount `./data` (config JSON + SQLite DB). Secrets never need to 
 app.py                      operation dashboard (Streamlit)
 config_dashboard.py         configuration dashboard (Streamlit, separate process)
 jobsearch_config/           config library: schema, provider catalog, load/save, validation, CLI  (no 3rd-party deps)
-jobsearch_sources/          search engine: provider adapters, preference filters, ranking, orchestrator (stdlib only)
-config/                     job_search_config.json (yours, git-ignored) + job_search_config.example.json
+jobsearch_sources/          search engine: provider adapters, preference filters, ranking, orchestrator, robots.txt, HTML extraction
+config/                     job_search_config.json + site_registry.json (yours, git-ignored) + job_search_config.example.json
 tests/                      pytest suite incl. headless Streamlit UI tests
 scripts/                    run_app.sh / run_config.sh (+ .bat)
 Dockerfile, docker-compose.yml, Makefile, .env.example
 docs/CONFIGURATION.md       configuration reference
 ```
+
+## Tooltips
+
+Every control, metric, section header and table column in both dashboards has a `?` tooltip explaining what it does, how it relates to the rest of the app, and a concrete example. The texts live in `ui_help.py` (`HELP` for widgets, `SECTIONS` for headers, `COLUMNS` for tables); provider-specific option help lives with the option definitions in `jobsearch_config/catalog.py`. `tests/test_tooltips.py` fails if any widget is added without one.
 
 ## Development
 

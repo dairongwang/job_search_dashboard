@@ -17,7 +17,8 @@ from urllib.parse import quote_plus
 
 from jobsearch_config.schema import JobPreferences, SearchSettings, SiteConfig
 
-from .http import basic_auth, build_url, fetch_json, fetch_text
+from .feeds import discover_feeds, explain_fetch_error, known_site_guidance
+from .http import FetchError, basic_auth, build_url, classify_body, fetch_json, fetch_text
 from .model import Job, normalise_job_type, normalise_workplace, parse_date, plain_text
 
 
@@ -29,6 +30,7 @@ class SearchContext:
     options: dict[str, Any]  # site.options with ${ENV} resolved
     keywords: list[str] = field(default_factory=list)  # search phrases to try (titles or override)
     location: str = ""  # first non-remote preferred location, for location-aware APIs
+    notes: list[str] = field(default_factory=list)  # adapter remarks surfaced next to the results
 
     @property
     def limit(self) -> int:
@@ -548,6 +550,34 @@ def _split_title(title: str, fmt: str) -> tuple[str, str]:
     return title, ""
 
 
+def _fetch_feed_text(ctx: SearchContext, url: str) -> str:
+    """GET a feed URL; if it is an HTML page, follow the feed it advertises; explain failures."""
+    try:
+        text = ctx.get_text(url)
+    except FetchError as exc:
+        raise ValueError(explain_fetch_error(exc, url)) from exc
+    kind = classify_body(text)
+    if kind == "feed" or kind == "xml":
+        return text
+    if kind == "html":
+        feeds = discover_feeds(text, url)
+        for feed_url in feeds[:3]:
+            try:
+                candidate = ctx.get_text(feed_url)
+            except FetchError:
+                continue
+            if classify_body(candidate) in ("feed", "xml"):
+                return candidate
+        guidance = known_site_guidance(url)
+        raise ValueError(
+            "the URL returns a web page (HTML), not an RSS/Atom feed"
+            + (f". {guidance}" if guidance else ". Use the site's feed URL (look for an RSS/Atom link) or its API.")
+        )
+    if kind == "json":
+        raise ValueError("the URL returns JSON, not an RSS/Atom feed — configure it as a 'Generic JSON API' site instead.")
+    raise ValueError("the URL did not return an RSS/Atom feed.")
+
+
 def rss(ctx: SearchContext) -> list[Job]:
     template = ctx.options.get("url") or ""
     if not template:
@@ -558,7 +588,7 @@ def rss(ctx: SearchContext) -> list[Job]:
     urls = [ctx.fill(template, k) for k in (ctx.keywords or [""])] if "{keyword}" in template else [ctx.fill(template, "")]
     jobs: list[Job] = []
     for url in dict.fromkeys(urls):
-        text = ctx.get_text(url)
+        text = _fetch_feed_text(ctx, url)
         try:
             root = ET.fromstring(text.encode("utf-8"))
         except ET.ParseError as exc:
@@ -648,7 +678,10 @@ def generic_json(ctx: SearchContext) -> list[Job]:
     urls = [ctx.fill(template, k) for k in (ctx.keywords or [""])] if "{keyword}" in template else [ctx.fill(template, "")]
     jobs: list[Job] = []
     for url in dict.fromkeys(urls):
-        payload = ctx.get_json(url, headers=headers)
+        try:
+            payload = ctx.get_json(url, headers=headers)
+        except FetchError as exc:
+            raise ValueError(explain_fetch_error(exc, url)) from exc
         items = _dig(payload, items_path)
         if not isinstance(items, list):
             raise ValueError(f"Items path '{items_path or '(root)'}' did not resolve to a list.")
@@ -689,7 +722,12 @@ def generic_json(ctx: SearchContext) -> list[Job]:
     return _dedupe(jobs, ctx.limit)
 
 
+from .ats import ATS_ADAPTERS  # noqa: E402  (after SearchContext is defined)
+from .htmlpages import html_page  # noqa: E402
+
 ADAPTERS: dict[str, Adapter] = {
+    **ATS_ADAPTERS,
+    "html": html_page,
     "remotive": remotive,
     "jobicy": jobicy,
     "arbeitnow": arbeitnow,
@@ -704,6 +742,6 @@ ADAPTERS: dict[str, Adapter] = {
 }
 
 # Providers that accept a keyword server-side (others filter locally on the keyword list).
-KEYWORD_PROVIDERS = {"remotive", "jobicy", "adzuna", "reed", "usajobs"}
+KEYWORD_PROVIDERS = {"remotive", "jobicy", "adzuna", "reed", "usajobs", "smartrecruiters", "workday"}
 
 __all__ = ["ADAPTERS", "KEYWORD_PROVIDERS", "SearchContext", "plain_text"]

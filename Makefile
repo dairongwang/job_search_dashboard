@@ -11,6 +11,10 @@ install-config:     ## configuration dashboard only
 dev:                ## everything incl. tests
 	$(PY) -m pip install -r requirements-dev.txt
 
+browser:            ## optional headless Chromium for JavaScript-rendered job boards
+	$(PY) -m pip install -r requirements-browser.txt
+	$(PY) -m playwright install chromium
+
 app:                ## run the main dashboard on :8501
 	streamlit run app.py --server.port 8501
 

@@ -6,7 +6,10 @@
 # Put site credentials in .env (see .env.example); they are referenced as ${NAME} in the config.
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        WITH_BROWSER: "${WITH_BROWSER:-0}"   # WITH_BROWSER=1 docker compose build  -> adds Chromium for JS-rendered boards
     image: job-search-dashboard
     ports:
       - "8501:8501"
@@ -17,12 +20,16 @@ services:
         required: false
     environment:
       JOB_SEARCH_CONFIG: /data/job_search_config.json
+      JOB_SEARCH_REGISTRY: /data/site_registry.json
       JOB_SEARCH_DB: /data/job_search.db
       JOB_SEARCH_CONFIG_URL: http://localhost:8502
     restart: unless-stopped
 
   config:
-    build: .
+    build:
+      context: .
+      args:
+        WITH_BROWSER: "${WITH_BROWSER:-0}"
     image: job-search-dashboard
     profiles: ["config"]
     command: ["streamlit", "run", "config_dashboard.py", "--server.port", "8502", "--server.address", "0.0.0.0"]
@@ -35,4 +42,5 @@ services:
         required: false
     environment:
       JOB_SEARCH_CONFIG: /data/job_search_config.json
+      JOB_SEARCH_REGISTRY: /data/site_registry.json
       JOB_SEARCH_APP_URL: http://localhost:8501

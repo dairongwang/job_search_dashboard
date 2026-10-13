@@ -7,7 +7,7 @@ Zero third-party dependencies. Used by:
 * ``python -m jobsearch_config`` - CLI for deployment scripts and CI.
 """
 
-from .catalog import PROVIDERS, ProviderSpec, OptionSpec, provider, builtin_providers, custom_providers, default_options
+from .catalog import PROVIDERS, ProviderSpec, OptionSpec, provider, builtin_providers, custom_providers, platform_providers, default_options
 from .defaults import default_config, default_sites
 from .schema import (
     CONFIG_VERSION,
@@ -35,14 +35,16 @@ from .store import (
     resolve_secret,
     save_config,
 )
+from .registry import ENV_REGISTRY_VAR, SEED_SITES, Registry, SiteRecord, classify_outcome, host_of, load_registry, registry_path
 from .validate import Issue, has_errors, validate
 
 __all__ = [
-    "PROVIDERS", "ProviderSpec", "OptionSpec", "provider", "builtin_providers", "custom_providers", "default_options",
+    "PROVIDERS", "ProviderSpec", "OptionSpec", "provider", "builtin_providers", "custom_providers", "platform_providers", "default_options",
     "default_config", "default_sites",
     "CONFIG_VERSION", "CURRENCIES", "INDUSTRIES", "JOB_TYPES", "SALARY_PERIODS", "SCHEDULES", "WORKPLACES",
     "AppConfig", "JobPreferences", "SalaryRange", "SearchSettings", "SiteConfig",
     "ENV_PATH_VAR", "config_path", "dumps", "exists", "load_config", "loads", "mtime",
     "resolve_options", "resolve_secret", "save_config",
     "Issue", "has_errors", "validate",
+    "ENV_REGISTRY_VAR", "SEED_SITES", "Registry", "SiteRecord", "classify_outcome", "host_of", "load_registry", "registry_path",
 ]

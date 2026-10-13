@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-12T17:54:06",
+  "updated_at": "2026-10-13T20:34:19",
   "sites": [
     {
       "id": "remotive",
@@ -145,6 +145,148 @@
         "workplace": ""
       },
       "notes": "Example of a generic JSON endpoint with a field mapping."
+    },
+    {
+      "id": "acme-careers-page",
+      "provider": "html",
+      "name": "Acme careers (example web page)",
+      "enabled": false,
+      "max_results": 20,
+      "options": {
+        "url": "https://careers.example.com/jobs?q={keyword}&page={page}",
+        "pages": 2,
+        "follow_links": "auto",
+        "max_detail_pages": 15,
+        "delay_seconds": 1,
+        "link_pattern": "",
+        "item_selector": "",
+        "title_selector": "",
+        "link_selector": "",
+        "company_selector": "",
+        "location_selector": "",
+        "salary_selector": "",
+        "date_selector": "",
+        "job_type_selector": "",
+        "workplace": ""
+      },
+      "notes": "Example of a plain web page: schema.org JobPosting data or job links are read automatically; add CSS selectors if needed."
+    },
+    {
+      "id": "yahoo-workday",
+      "provider": "workday",
+      "name": "Yahoo careers (Workday API)",
+      "enabled": false,
+      "max_results": 20,
+      "options": {
+        "url": "https://ouryahoo.wd5.myworkdayjobs.com/careers",
+        "tenant": "ouryahoo",
+        "site": "careers",
+        "host": "ouryahoo.wd5.myworkdayjobs.com",
+        "facets": {
+          "locationCountry": "United States of America"
+        },
+        "details": "auto",
+        "company": "Yahoo",
+        "workplace": ""
+      },
+      "notes": "Yahoo's careers site runs on Workday; this calls its job-search API with your titles and facet filters. Run Investigate on https://www.yahooinc.com/careers/ to confirm tenant/site, then enable."
+    },
+    {
+      "id": "yahoo-careers-form",
+      "provider": "html",
+      "name": "Yahoo careers (search form)",
+      "enabled": false,
+      "max_results": 20,
+      "options": {
+        "url": "https://www.yahooinc.com/careers/",
+        "pages": 1,
+        "render": "always",
+        "actions": [
+          {
+            "fill": {
+              "placeholder": "Key words"
+            },
+            "value": "{keyword}"
+          },
+          {
+            "click": {
+              "text": "Select job categories"
+            }
+          },
+          {
+            "click": {
+              "option": "{category}"
+            }
+          },
+          {
+            "press": "Escape"
+          },
+          {
+            "click": {
+              "text": "Select countries"
+            }
+          },
+          {
+            "click": {
+              "option": "{country}"
+            }
+          },
+          {
+            "press": "Escape"
+          },
+          {
+            "click": {
+              "text": "Select brands"
+            }
+          },
+          {
+            "click": {
+              "option": "{brands}"
+            }
+          },
+          {
+            "press": "Escape"
+          },
+          {
+            "click": {
+              "button": "Find jobs"
+            }
+          },
+          {
+            "wait": "networkidle"
+          },
+          {
+            "click": {
+              "button": "Load more"
+            },
+            "repeat": 3,
+            "optional": true,
+            "snapshot": true
+          }
+        ],
+        "form_values": {
+          "category": "Engineering",
+          "country": "United States",
+          "brands": [
+            "Yahoo",
+            "Yahoo Finance"
+          ]
+        },
+        "follow_links": "always",
+        "max_detail_pages": 20,
+        "delay_seconds": 1,
+        "link_pattern": "",
+        "item_selector": "",
+        "title_selector": "",
+        "link_selector": "",
+        "company_selector": "",
+        "location_selector": "",
+        "salary_selector": "",
+        "date_selector": "",
+        "job_type_selector": "",
+        "workplace": ""
+      },
+      "notes": "Drives the search bar on yahooinc.com/careers like a person: keyword, job category, country, brands, Find jobs. Verify the control labels with Investigate (Render in browser) and adjust the steps if the site changes."
     }
   ],
   "preferences": {
@@ -199,6 +341,6 @@
     "timeout_seconds": 15,
     "strict_filtering": true,
     "dedupe_by_url": true,
-    "user_agent": "JobSearchDashboard/2.0 (personal local tracker)"
+    "user_agent": "Mozilla/5.0 (compatible; JobSearchDashboard/2.0; personal job tracker)"
   }
 }

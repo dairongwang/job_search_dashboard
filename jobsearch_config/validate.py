@@ -9,8 +9,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from typing import TYPE_CHECKING
+
 from .catalog import provider
 from .schema import CONFIG_VERSION, JOB_TYPES, SCHEDULES, WORKPLACES, AppConfig
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .registry import Registry
 
 SITE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -26,8 +31,16 @@ class Issue:
         return f"[{self.level}] {self.where}: {self.message}"
 
 
-def validate(config: AppConfig) -> list[Issue]:
+def validate(config: AppConfig, registry: "Registry | None" = None) -> list[Issue]:
+    """Validate ``config``. ``registry`` defaults to the persisted site registry (pass ``False`` to skip)."""
     issues: list[Issue] = []
+    if registry is None:
+        try:
+            from .registry import load_registry
+
+            registry = load_registry()
+        except (OSError, ValueError):
+            registry = False  # type: ignore[assignment]
 
     if config.version > CONFIG_VERSION:
         issues.append(Issue("warning", "version", f"Config version {config.version} is newer than this app ({CONFIG_VERSION})."))
@@ -63,8 +76,10 @@ def validate(config: AppConfig) -> list[Issue]:
                     int(value)
                 except (TypeError, ValueError):
                     issues.append(Issue("error", where, f"Option '{opt.label}' must be an integer."))
-            if opt.kind == "json" and value is not None and not isinstance(value, dict):
-                issues.append(Issue("error", where, f"Option '{opt.label}' must be a JSON object."))
+            if opt.kind == "json" and value is not None:
+                expected = (list,) if isinstance(opt.default, list) else (dict,)
+                if not isinstance(value, expected):
+                    issues.append(Issue("error", where, f"Option '{opt.label}' must be a JSON {'array' if expected == (list,) else 'object'}."))
             if opt.kind == "secret" and isinstance(value, str):
                 match = ENV_REF_RE.match(value)
                 if match and site.enabled:
@@ -78,6 +93,17 @@ def validate(config: AppConfig) -> list[Issue]:
             url = str(site.options.get("url") or "")
             if url and not url.lower().startswith(("http://", "https://")):
                 issues.append(Issue("error", where, "URL must start with http:// or https://."))
+            if url and registry and site.enabled:
+                blocked = registry.forbidden(url)
+                if blocked is not None:
+                    issues.append(
+                        Issue(
+                            "error",
+                            where,
+                            f"{blocked.host} forbids automated access (registry, checked {blocked.updated_at}): {blocked.message} "
+                            "Disable the site or re-check it in the Site registry tab.",
+                        )
+                    )
 
     # --- preferences ----------------------------------------------------------
     prefs = config.preferences

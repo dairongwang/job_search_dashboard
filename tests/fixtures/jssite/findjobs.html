@@ -1,0 +1,47 @@
+<!DOCTYPE html><html><head><title>Careers — Find jobs</title>
+<style>ul[hidden]{display:none}</style>
+<script>
+const JOBS = [
+  {id: 77, title: "Data Analyst (JS)", cat: "Engineering", country: "United States", brand: "Yahoo"},
+  {id: 78, title: "Senior Data Analyst", cat: "Engineering", country: "United States", brand: "Yahoo Finance"},
+  {id: 79, title: "Marketing Analyst", cat: "Marketing", country: "United States", brand: "Yahoo"},
+  {id: 80, title: "Data Analyst (Toronto)", cat: "Engineering", country: "Canada", brand: "Yahoo"},
+  {id: 81, title: "Data Engineer", cat: "Engineering", country: "United States", brand: "AOL"},
+  {id: 82, title: "Analyst, Ads", cat: "Engineering", country: "United States", brand: "Yahoo"},
+];
+let state = {cat: "", page: 1, matches: []};
+function toggle(id){ const ul = document.querySelector('#' + id + ' ul'); ul.hidden = !ul.hidden; }
+function pick(id, value){ state[id] = value; document.querySelector('#' + id + ' button').textContent = value; document.querySelector('#' + id + ' ul').hidden = true; }
+function find(){
+  const q = document.querySelector('input[placeholder="Key words"]').value.toLowerCase();
+  const country = document.querySelector('select[aria-label="Select countries"]').value;
+  const brands = Array.from(document.querySelectorAll('input[name=brand]:checked')).map(b => b.value);
+  state.matches = JOBS.filter(j => (!q || j.title.toLowerCase().includes(q)) && (!state.cat || j.cat === state.cat)
+      && (!country || country === "Select countries" || j.country === country) && (!brands.length || brands.includes(j.brand)));
+  state.page = 1; render();
+}
+function render(){
+  const ul = document.getElementById('results'); ul.innerHTML = '';
+  state.matches.slice(0, state.page * 2).forEach(j => { const li = document.createElement('li'); li.innerHTML = '<a href="/jobs/' + j.id + '">' + j.title + '</a> — ' + j.brand + ' — ' + j.country; ul.appendChild(li); });
+  document.getElementById('more').hidden = state.matches.length <= state.page * 2;
+  document.getElementById('count').textContent = state.matches.length + ' jobs';
+}
+function more(){ state.page += 1; render(); }
+</script></head>
+<body>
+<h1>Careers</h1>
+<div class="bar">
+  <input placeholder="Key words">
+  <div class="dd" id="cat"><button type="button" onclick="toggle('cat')">Select job categories</button>
+    <ul hidden><li role="option" onclick="pick('cat','Engineering')">Engineering</li><li role="option" onclick="pick('cat','Marketing')">Marketing</li></ul></div>
+  <select aria-label="Select countries"><option>Select countries</option><option>United States</option><option>Canada</option></select>
+  <fieldset><legend>Select brands</legend>
+    <label><input type="checkbox" name="brand" value="Yahoo">Yahoo</label>
+    <label><input type="checkbox" name="brand" value="Yahoo Finance">Yahoo Finance</label>
+    <label><input type="checkbox" name="brand" value="AOL">AOL</label></fieldset>
+  <button type="button" onclick="find()">Find jobs</button>
+</div>
+<p id="count"></p>
+<ul id="results"></ul>
+<button id="more" type="button" hidden onclick="more()">Load more</button>
+</body></html>

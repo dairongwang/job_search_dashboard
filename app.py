@@ -16,6 +16,7 @@ import streamlit as st
 
 import jobsearch_config as jc
 import jobsearch_sources as js
+from ui_help import COLUMNS, column_config, h, sec
 
 # Data location is configurable for deployment (e.g. a mounted volume in Docker).
 DB_PATH = Path(os.environ.get("JOB_SEARCH_DB") or Path(__file__).with_name("job_search.db"))
@@ -73,24 +74,6 @@ st.markdown(
       [data-testid="stSidebar"] * { color: #faf7f2; }
       [data-testid="stSidebar"] a { color: #99f6e4 !important; }
       h1, h2, h3 { letter-spacing: -0.03em; }
-      .metric-card {
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 14px 16px 12px;
-        min-height: 92px;
-      }
-      .metric-card .label {
-        color: var(--muted);
-        font-size: 0.78rem;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-      }
-      .metric-card .value {
-        font-size: 1.7rem;
-        font-weight: 650;
-        margin-top: 4px;
-      }
       .pill {
         display: inline-block;
         background: var(--accent-soft);
@@ -243,12 +226,9 @@ def set_setting(key: str, value: str) -> None:
     )
 
 
-def metric(label: str, value: str) -> None:
-    st.markdown(
-        f'<div class="metric-card"><div class="label">{label}</div>'
-        f'<div class="value">{value}</div></div>',
-        unsafe_allow_html=True,
-    )
+def metric(label: str, value: str, help_key: str = "") -> None:
+    with st.container(border=True):
+        st.metric(label, value, help=h(help_key) if help_key else None)
 
 
 def save_job(row: dict, status: str = "Saved") -> str:
@@ -410,19 +390,19 @@ def page_dashboard() -> None:
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        metric("Open roles", str(len(open_jobs)))
+        metric("Open roles", str(len(open_jobs)), "metric_open")
     with c2:
-        metric("In process", str(len(applied)))
+        metric("In process", str(len(applied)), "metric_in_process")
     with c3:
-        metric("Interviews / offers", str(len(interviews)))
+        metric("Interviews / offers", str(len(interviews)), "metric_interviews")
     with c4:
-        metric("Contacts", str(len(contacts)))
+        metric("Contacts", str(len(contacts)), "metric_contacts")
     with c5:
-        metric("Outreach, 7 days", str(len(recent_outreach)))
+        metric("Outreach, 7 days", str(len(recent_outreach)), "metric_outreach")
 
     left, right = st.columns([1.2, 1])
     with left:
-        st.subheader("Pipeline")
+        st.subheader("Pipeline", help=sec("dash_pipeline"))
         if jobs.empty:
             st.info("No roles yet. Search public listings under Research, or add one under Jobs.")
         else:
@@ -430,7 +410,7 @@ def page_dashboard() -> None:
             chart = counts[counts > 0].rename_axis("status").reset_index(name="roles")
             st.bar_chart(chart, x="status", y="roles", color="#0f6e6b", height=280)
     with right:
-        st.subheader("Due and overdue")
+        st.subheader("Due and overdue", help=sec("dash_due"))
         if jobs.empty:
             st.caption("Next actions show up here once a role has a follow-up date.")
         else:
@@ -443,9 +423,9 @@ def page_dashboard() -> None:
                 show = due.sort_values("next_action_date")[
                     ["next_action_date", "title", "organization", "next_action", "status"]
                 ]
-                st.dataframe(show, hide_index=True, width="stretch")
+                st.dataframe(show, hide_index=True, width="stretch", column_config=column_config(show.columns))
 
-    st.subheader("Recent outreach")
+    st.subheader("Recent outreach", help=sec("dash_recent"))
     if outreach.empty:
         st.caption("Log a note, email, or LinkedIn touch under Outreach.")
     else:
@@ -455,6 +435,7 @@ def page_dashboard() -> None:
             ],
             hide_index=True,
             width="stretch",
+            column_config=column_config(["activity_date", "channel", "contact_name", "organization", "subject", "outcome", "follow_up_date"]),
         )
 
 
@@ -501,7 +482,7 @@ def page_research() -> None:
             "Keyword override",
             value="",
             placeholder=f"blank = use configured titles: {', '.join(config.preferences.titles[:3]) or '—'}",
-            help="Type a phrase to search for it instead of your configured titles for this run only.",
+            help=h("research_keyword"),
         )
     with col_b:
         site_ids = st.multiselect(
@@ -509,16 +490,13 @@ def page_research() -> None:
             [s.id for s in enabled],
             default=[s.id for s in enabled],
             format_func=lambda sid: next((s.name for s in enabled if s.id == sid), sid),
+            help=h("research_sites"),
         )
     col_c, col_d = st.columns([1, 3])
     with col_c:
-        strict = st.toggle(
-            "Strict filters",
-            value=config.search.strict_filtering,
-            help="On: hide listings that fail a preference. Off: show everything, ranked, with the failing reason.",
-        )
+        strict = st.toggle("Strict filters", value=config.search.strict_filtering, help=h("research_strict"))
     with col_d:
-        run = st.button("Search listings", type="primary", disabled=not site_ids)
+        run = st.button("Search listings", type="primary", disabled=not site_ids, help=h("research_run"))
 
     if run:
         with st.spinner(f"Checking {len(site_ids)} site(s)…"):
@@ -527,22 +505,39 @@ def page_research() -> None:
 
     report = st.session_state.get("search_report")
     if isinstance(report, js.SearchReport):
-        for error in report.errors:
-            st.warning(error)
+        if report.errors:
+            with st.expander(f"{len(report.errors)} site(s) could not be searched", expanded=True):
+                for outcome in report.outcomes:
+                    if outcome.error:
+                        (st.error if outcome.denied else st.warning)(f"{outcome.name}: {outcome.error}")
+                st.caption(
+                    "Sites that answer HTTP 403 or return a web page do not offer a feed/API for scripts. "
+                    f"Fix or disable them in the [configuration dashboard]({CONFIG_APP_URL})."
+                )
         rows = report.rows()
+        kept = sum(1 for r in rows if r["passes"])
+        if report.fetched and kept == 0 and report.dropped:
+            top = ", ".join(f"{kind} ({count})" for kind, count in report.dropped.most_common(6))
+            st.info(
+                f"All {report.fetched} fetched listing(s) were removed by your preferences — {top}. "
+                "Turn off **Strict filters** to see them with the reason, or loosen the preference in the configuration dashboard."
+            )
         with st.expander(
-            f"{len(rows)} listing(s) after filters · fetched {sum(o.fetched for o in report.outcomes)} across {len(report.outcomes)} site(s)",
+            f"{kept} listing(s) after filters · fetched {report.fetched} unique across {len(report.outcomes)} site(s)",
             expanded=False,
         ):
+            if report.dropped:
+                st.caption("Removed by filters: " + ", ".join(f"{kind} {count}" for kind, count in report.dropped.most_common()))
             st.dataframe(
                 pd.DataFrame(
                     [
-                        {"site": o.name, "fetched": o.fetched, "kept": o.kept, "seconds": o.seconds, "status": o.error or "ok"}
+                        {"site": o.name, "fetched": o.fetched, "kept": o.kept, "seconds": o.seconds, "status": o.error or (o.note or "ok")}
                         for o in report.outcomes
                     ]
                 ),
                 hide_index=True,
                 width="stretch",
+                column_config=column_config(["site", "fetched", "kept", "seconds", "status"]),
             )
             if report.keywords:
                 st.caption("Search phrases: " + ", ".join(report.keywords))
@@ -562,16 +557,19 @@ def page_research() -> None:
                 frame[preview_cols],
                 hide_index=True,
                 width="stretch",
-                column_config={
-                    "url": st.column_config.LinkColumn("listing"),
-                    "score": st.column_config.ProgressColumn("match", min_value=0, max_value=max(100, int(frame["score"].max()))),
-                    "salary_text": "salary",
-                    "passes": st.column_config.CheckboxColumn("ok"),
-                },
+                column_config=column_config(
+                    preview_cols,
+                    url=st.column_config.LinkColumn("listing", help=COLUMNS["url"]),
+                    score=st.column_config.ProgressColumn(
+                        "match", min_value=0, max_value=max(100, int(frame["score"].max())), help=COLUMNS["score"]
+                    ),
+                    salary_text="salary",
+                    passes=st.column_config.CheckboxColumn("ok", help=COLUMNS["passes"]),
+                ),
             )
             labels = [f"{i}. {row.title} — {row.organization}" for i, row in frame.iterrows()]
-            picked = st.multiselect("Save into the tracker", labels)
-            if st.button("Save selected") and picked:
+            picked = st.multiselect("Save into the tracker", labels, help=h("research_pick"))
+            if st.button("Save selected", help=h("research_save")) and picked:
                 saved = skipped = 0
                 for label in picked:
                     idx = int(label.split(".", 1)[0])
@@ -579,19 +577,19 @@ def page_research() -> None:
                     saved += result == "saved"
                     skipped += result != "saved"
                 st.success(f"Saved {saved}. Already tracked: {skipped}.")
-            st.download_button("Export results CSV", frame.to_csv(index=False).encode(), "search_results.csv", "text/csv")
+            st.download_button("Export results CSV", frame.to_csv(index=False).encode(), "search_results.csv", "text/csv", help=h("research_export"))
         else:
             st.info("No matches. Loosen a preference in the configuration dashboard, turn off strict filters, or try another keyword.")
 
-    st.subheader("Target companies")
+    st.subheader("Target companies", help=sec("research_targets"))
     with st.form("add_org", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
-        name = c1.text_input("Company")
-        industry = c2.text_input("Industry")
-        location = c3.text_input("Location")
-        website = st.text_input("Website")
-        notes = st.text_area("Why this company", height=80)
-        if st.form_submit_button("Add company") and name.strip():
+        name = c1.text_input("Company", help=h("org_name"))
+        industry = c2.text_input("Industry", help=h("org_industry"))
+        location = c3.text_input("Location", help=h("org_location"))
+        website = st.text_input("Website", help=h("org_website"))
+        notes = st.text_area("Why this company", height=80, help=h("org_why"))
+        if st.form_submit_button("Add company", help=h("org_add")) and name.strip():
             execute(
                 "INSERT OR IGNORE INTO organizations(name, website, industry, location, notes, created_at) VALUES(?, ?, ?, ?, ?, ?)",
                 (name.strip(), website.strip(), industry.strip(), location.strip(), notes.strip(), now_iso()),
@@ -600,13 +598,18 @@ def page_research() -> None:
             st.rerun()
     orgs = df_query("SELECT name, industry, location, website, notes FROM organizations ORDER BY name")
     if not orgs.empty:
-        st.dataframe(orgs, hide_index=True, width="stretch")
+        st.dataframe(
+            orgs,
+            hide_index=True,
+            width="stretch",
+            column_config=column_config(orgs.columns, name=st.column_config.Column("name", help="Company name."), website=st.column_config.LinkColumn(help=COLUMNS["website"])),
+        )
 
-    st.subheader("Research notes")
+    st.subheader("Research notes", help=sec("research_notes"))
     with st.form("note", clear_on_submit=True):
-        topic = st.text_input("Topic", placeholder="Salary bands for analyst roles in Philly")
-        body = st.text_area("Note")
-        if st.form_submit_button("Save note") and topic.strip():
+        topic = st.text_input("Topic", placeholder="Salary bands for analyst roles in Philly", help=h("note_topic"))
+        body = st.text_area("Note", help=h("note_body"))
+        if st.form_submit_button("Save note", help=h("note_save")) and topic.strip():
             execute(
                 "INSERT INTO research_notes(topic, body, created_at) VALUES(?, ?, ?)",
                 (topic.strip(), body.strip(), now_iso()),
@@ -614,7 +617,7 @@ def page_research() -> None:
             st.rerun()
     notes = df_query("SELECT created_at, topic, body FROM research_notes ORDER BY id DESC")
     if not notes.empty:
-        st.dataframe(notes, hide_index=True, width="stretch")
+        st.dataframe(notes, hide_index=True, width="stretch", column_config=column_config(notes.columns))
 
 
 def page_jobs() -> None:
@@ -624,20 +627,20 @@ def page_jobs() -> None:
     with st.expander("Add a role", expanded=jobs.empty):
         with st.form("add_job", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            title = c1.text_input("Title")
-            organization = c2.text_input("Organization")
+            title = c1.text_input("Title", help=h("job_title"))
+            organization = c2.text_input("Organization", help=h("job_org"))
             c3, c4, c5 = st.columns(3)
-            location = c3.text_input("Location")
-            workplace = c4.selectbox("Workplace", ["Remote", "Hybrid", "On-site", "Unknown"])
-            status = c5.selectbox("Status", STATUSES, index=0)
+            location = c3.text_input("Location", help=h("job_location"))
+            workplace = c4.selectbox("Workplace", ["Remote", "Hybrid", "On-site", "Unknown"], help=h("job_workplace"))
+            status = c5.selectbox("Status", STATUSES, index=0, help=h("job_status"))
             c6, c7 = st.columns(2)
-            priority = c6.selectbox("Priority", PRIORITIES, index=1)
-            salary = c7.text_input("Salary")
-            url = st.text_input("Listing URL")
-            next_action = st.text_input("Next action")
-            next_action_date = st.date_input("Next action date", value=date.today())
-            notes = st.text_area("Notes")
-            if st.form_submit_button("Add role") and title.strip():
+            priority = c6.selectbox("Priority", PRIORITIES, index=1, help=h("job_priority"))
+            salary = c7.text_input("Salary", help=h("job_salary"))
+            url = st.text_input("Listing URL", help=h("job_url"))
+            next_action = st.text_input("Next action", help=h("job_next_action"))
+            next_action_date = st.date_input("Next action date", value=date.today(), help=h("job_next_date"))
+            notes = st.text_area("Notes", help=h("job_notes"))
+            if st.form_submit_button("Add role", help=h("job_add")) and title.strip():
                 result = save_job(
                     {
                         "title": title.strip(),
@@ -675,15 +678,15 @@ def page_jobs() -> None:
 
     if jobs.empty:
         st.info("The tracker is empty. Add a role above, or save listings from Research.")
-        if st.button("Load two sample roles"):
+        if st.button("Load two sample roles", help=h("job_load_sample")):
             load_sample()
             st.rerun()
         return
 
     f1, f2, f3 = st.columns(3)
-    status_filter = f1.multiselect("Status", STATUSES, default=[s for s in STATUSES if s in OPEN_STATUSES])
-    priority_filter = f2.multiselect("Priority", PRIORITIES, default=PRIORITIES)
-    query = f3.text_input("Filter title or company")
+    status_filter = f1.multiselect("Status", STATUSES, default=[s for s in STATUSES if s in OPEN_STATUSES], help=h("job_filter_status"))
+    priority_filter = f2.multiselect("Priority", PRIORITIES, default=PRIORITIES, help=h("job_filter_priority"))
+    query = f3.text_input("Filter title or company", help=h("job_filter_text"))
     view = jobs[jobs["status"].isin(status_filter) & jobs["priority"].isin(priority_filter)]
     if query.strip():
         needle = query.lower()
@@ -709,33 +712,34 @@ def page_jobs() -> None:
         view[columns],
         hide_index=True,
         width="stretch",
-        column_config={"url": st.column_config.LinkColumn()},
+        column_config=column_config(columns, url=st.column_config.LinkColumn(help=COLUMNS["url"])),
     )
     st.download_button(
         "Export filtered jobs CSV",
         view.to_csv(index=False).encode(),
         "jobs.csv",
         "text/csv",
+        help=h("job_export"),
     )
 
-    st.subheader("Update a role")
+    st.subheader("Update a role", help=sec("jobs_update"))
     labels = {f"{row.id}: {row.title} @ {row.organization or '—'}": int(row.id) for row in jobs.itertuples()}
-    choice = st.selectbox("Role", list(labels))
+    choice = st.selectbox("Role", list(labels), help=h("job_pick"))
     job_id = labels[choice]
     row = jobs[jobs["id"] == job_id].iloc[0]
     with st.form("edit_job"):
         e1, e2, e3 = st.columns(3)
-        status = e1.selectbox("Status", STATUSES, index=STATUSES.index(row.status) if row.status in STATUSES else 0)
-        priority = e2.selectbox("Priority", PRIORITIES, index=PRIORITIES.index(row.priority) if row.priority in PRIORITIES else 1)
-        salary = e3.text_input("Salary", value=row.salary or "")
+        status = e1.selectbox("Status", STATUSES, index=STATUSES.index(row.status) if row.status in STATUSES else 0, help=h("job_status"))
+        priority = e2.selectbox("Priority", PRIORITIES, index=PRIORITIES.index(row.priority) if row.priority in PRIORITIES else 1, help=h("job_priority"))
+        salary = e3.text_input("Salary", value=row.salary or "", help=h("job_salary"))
         applied_default = date.fromisoformat(row.date_applied) if row.date_applied else date.today()
-        date_applied = st.date_input("Date applied", value=applied_default)
-        mark_applied = st.checkbox("Record an application date", value=bool(row.date_applied))
-        next_action = st.text_input("Next action", value=row.next_action or "")
+        date_applied = st.date_input("Date applied", value=applied_default, help=h("job_date_applied"))
+        mark_applied = st.checkbox("Record an application date", value=bool(row.date_applied), help=h("job_mark_applied"))
+        next_action = st.text_input("Next action", value=row.next_action or "", help=h("job_next_action"))
         follow_default = date.fromisoformat(row.next_action_date) if row.next_action_date else date.today()
-        next_action_date = st.date_input("Next action date", value=follow_default)
-        notes = st.text_area("Notes", value=row.notes or "")
-        if st.form_submit_button("Save changes"):
+        next_action_date = st.date_input("Next action date", value=follow_default, help=h("job_next_date"))
+        notes = st.text_area("Notes", value=row.notes or "", help=h("job_notes"))
+        if st.form_submit_button("Save changes", help=h("job_save")):
             execute(
                 """
                 UPDATE jobs
@@ -757,7 +761,7 @@ def page_jobs() -> None:
             )
             st.success("Updated.")
             st.rerun()
-    if st.button("Delete this role"):
+    if st.button("Delete this role", help=h("job_delete")):
         execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         st.rerun()
 
@@ -767,15 +771,15 @@ def page_people() -> None:
     st.caption("Recruiters, hiring managers, and people who can make an introduction.")
     with st.form("add_contact", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        name = c1.text_input("Name")
-        organization = c2.text_input("Organization")
+        name = c1.text_input("Name", help=h("contact_name"))
+        organization = c2.text_input("Organization", help=h("contact_org"))
         c3, c4 = st.columns(2)
-        title = c3.text_input("Title")
-        relationship = c4.text_input("Relationship", placeholder="Recruiter, classmate, hiring manager")
-        email = st.text_input("Email")
-        linkedin = st.text_input("LinkedIn URL")
-        notes = st.text_area("Notes", height=80)
-        if st.form_submit_button("Add contact") and name.strip():
+        title = c3.text_input("Title", help=h("contact_title"))
+        relationship = c4.text_input("Relationship", placeholder="Recruiter, classmate, hiring manager", help=h("contact_relationship"))
+        email = st.text_input("Email", help=h("contact_email"))
+        linkedin = st.text_input("LinkedIn URL", help=h("contact_linkedin"))
+        notes = st.text_area("Notes", height=80, help=h("contact_notes"))
+        if st.form_submit_button("Add contact", help=h("contact_add")) and name.strip():
             execute(
                 """
                 INSERT INTO contacts(name, organization, title, email, linkedin, relationship, notes, created_at)
@@ -804,16 +808,17 @@ def page_people() -> None:
     if contacts.empty:
         st.info("No contacts yet.")
         return
+    shown = contacts.drop(columns=["id"])
     st.dataframe(
-        contacts.drop(columns=["id"]),
+        shown,
         hide_index=True,
         width="stretch",
-        column_config={"linkedin": st.column_config.LinkColumn()},
+        column_config=column_config(shown.columns, linkedin=st.column_config.LinkColumn(help=COLUMNS["linkedin"]), title=st.column_config.Column("title", help="Their job title.")),
     )
-    st.download_button("Export contacts CSV", contacts.to_csv(index=False).encode(), "contacts.csv", "text/csv")
+    st.download_button("Export contacts CSV", contacts.to_csv(index=False).encode(), "contacts.csv", "text/csv", help=h("contact_export"))
     labels = {f"{row.id}: {row.name}": int(row.id) for row in contacts.itertuples()}
-    choice = st.selectbox("Remove contact", ["—"] + list(labels))
-    if choice != "—" and st.button("Delete contact"):
+    choice = st.selectbox("Remove contact", ["—"] + list(labels), help=h("contact_remove_pick"))
+    if choice != "—" and st.button("Delete contact", help=h("contact_delete")):
         execute("DELETE FROM contacts WHERE id = ?", (labels[choice],))
         st.rerun()
 
@@ -827,17 +832,17 @@ def page_outreach() -> None:
 
     with st.form("log_outreach", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        contact = c1.selectbox("Contact", contact_labels)
-        role = c2.selectbox("Related role", job_labels)
+        contact = c1.selectbox("Contact", contact_labels, help=h("outreach_contact"))
+        role = c2.selectbox("Related role", job_labels, help=h("outreach_role"))
         c3, c4 = st.columns(2)
-        channel = c3.selectbox("Channel", CHANNELS)
-        outcome = c4.selectbox("Outcome", OUTCOMES)
-        subject = st.text_input("Subject or purpose", placeholder="Intro note about the analyst role")
-        activity_date = st.date_input("Date", value=date.today())
-        follow_up = st.date_input("Follow up on", value=date.today() + timedelta(days=5))
-        use_follow_up = st.checkbox("Set a follow-up", value=True)
-        notes = st.text_area("What you sent / what they said")
-        if st.form_submit_button("Log outreach", type="primary"):
+        channel = c3.selectbox("Channel", CHANNELS, help=h("outreach_channel"))
+        outcome = c4.selectbox("Outcome", OUTCOMES, help=h("outreach_outcome"))
+        subject = st.text_input("Subject or purpose", placeholder="Intro note about the analyst role", help=h("outreach_subject"))
+        activity_date = st.date_input("Date", value=date.today(), help=h("outreach_date"))
+        follow_up = st.date_input("Follow up on", value=date.today() + timedelta(days=5), help=h("outreach_follow_up"))
+        use_follow_up = st.checkbox("Set a follow-up", value=True, help=h("outreach_use_follow_up"))
+        notes = st.text_area("What you sent / what they said", help=h("outreach_notes"))
+        if st.form_submit_button("Log outreach", type="primary", help=h("outreach_log")):
             contact_name = ""
             organization = ""
             if contact != "—":
@@ -879,19 +884,17 @@ def page_outreach() -> None:
     due = due[due["follow_up_date"] <= (date.today() + timedelta(days=3)).isoformat()]
     due = due[due["outcome"].isin(["Sent", "No response"])]
     if not due.empty:
-        st.subheader("Follow-ups coming due")
+        st.subheader("Follow-ups coming due", help=sec("outreach_due"))
         st.dataframe(
             due[["follow_up_date", "contact_name", "organization", "channel", "subject"]],
             hide_index=True,
             width="stretch",
+            column_config=column_config(["follow_up_date", "contact_name", "organization", "channel", "subject"]),
         )
-    st.subheader("Log")
-    st.dataframe(
-        log[["activity_date", "channel", "contact_name", "organization", "job_title", "subject", "outcome", "follow_up_date", "notes"]],
-        hide_index=True,
-        width="stretch",
-    )
-    st.download_button("Export outreach CSV", log.to_csv(index=False).encode(), "outreach.csv", "text/csv")
+    st.subheader("Log", help=sec("outreach_log"))
+    log_cols = ["activity_date", "channel", "contact_name", "organization", "job_title", "subject", "outcome", "follow_up_date", "notes"]
+    st.dataframe(log[log_cols], hide_index=True, width="stretch", column_config=column_config(log_cols))
+    st.download_button("Export outreach CSV", log.to_csv(index=False).encode(), "outreach.csv", "text/csv", help=h("outreach_export"))
 
 
 def page_configuration() -> None:
@@ -912,7 +915,7 @@ def page_configuration() -> None:
     )
     c1, c2 = st.columns([3, 1])
     c1.code(str(jc.config_path()), language="text")
-    if c2.button("Reload now"):
+    if c2.button("Reload now", help=h("reload_config")):
         st.session_state.pop("config", None)
         st.rerun()
     st.caption(f"Last saved: {config.updated_at or '—'}")
@@ -923,7 +926,7 @@ def page_configuration() -> None:
     for issue in issues:
         (st.error if issue.level == "error" else st.warning)(str(issue))
 
-    st.subheader("Job sites")
+    st.subheader("Job sites", help=sec("app_cfg_sites"))
     st.dataframe(
         pd.DataFrame(
             [
@@ -940,10 +943,31 @@ def page_configuration() -> None:
         ),
         hide_index=True,
         width="stretch",
-        column_config={"enabled": st.column_config.CheckboxColumn(disabled=True)},
+        column_config=column_config(
+            ["enabled", "site", "provider", "max results", "options"],
+            enabled=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["enabled"]),
+        ),
     )
-    st.subheader("Job preferences")
+    st.subheader("Job preferences", help=sec("app_cfg_prefs"))
     st.markdown(config_summary_md(config))
+    st.subheader("Site registry", help=sec("app_cfg_registry"))
+    st.caption("Hosts the app has checked. Inactive hosts forbid automated access and are skipped. Managed in the configuration dashboard.")
+    rows = jc.load_registry().list()
+    if rows:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"host": r.host, "active": r.active, "status": r.status, "checks": r.checks, "updated": r.updated_at, "message": r.message}
+                    for r in rows
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+            column_config=column_config(
+                ["host", "active", "status", "checks", "updated", "message"],
+                active=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["active"]),
+            ),
+        )
     with st.expander("Raw JSON"):
         st.code(jc.dumps(config), language="json")
 
@@ -956,7 +980,15 @@ def main() -> None:
     page = st.sidebar.radio(
         "Go to",
         ["Dashboard", "Research", "Jobs", "Contacts", "Outreach", "Configuration"],
-        label_visibility="collapsed",
+        help=h("nav"),
+        captions=[
+            "Counts, pipeline, what is due",
+            "Search sites, save listings",
+            "Your roles and their status",
+            "Recruiters and referrers",
+            "Messages and follow-ups",
+            "Active sites & preferences (read-only)",
+        ],
     )
     st.sidebar.divider()
     st.sidebar.caption(f"Database: {DB_PATH.name}")

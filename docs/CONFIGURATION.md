@@ -53,6 +53,9 @@ store.
 | `adzuna` | `country`, `app_id`*, `app_key`* | keyword, location, salary min/max, permanent/contract, full/part-time, max age |
 | `reed` | `api_key`*, `distance_miles` | keyword, location, salary, permanent/contract/temp, full/part-time |
 | `usajobs` | `api_key`*, `email`* | keyword, location, min salary, date posted |
+| `greenhouse` / `lever` / `ashby` / `smartrecruiters` / `recruitee` / `workable` | company identifier (`board` / `site` / `company_id` / `company` / `subdomain`), display name, platform filters | platform API filters (department, team, keyword/city for SmartRecruiters) |
+| `workday` | `url` or `tenant` + `site` (+ `host`), `facets` (by visible name), `details` | keyword (`searchText`), facets |
+| `html` | `url`*, `pages`, `render`, `actions`, `form_values`, `follow_links`, `max_detail_pages`, `delay_seconds`, `link_pattern`, `item_selector` + field selectors, `workplace` | `{keyword}` / `{location}` / `{page}` placeholders if present; otherwise filtered locally |
 | `rss` | `url`*, `title_format`, `workplace` | `{keyword}` / `{location}` placeholders in the URL if present; otherwise filtered locally |
 | `json` | `url`*, `items_path`, `mapping`, `headers`, `workplace` | `{keyword}` / `{location}` / `{limit}` placeholders if present |
 
@@ -60,6 +63,107 @@ store.
 
 The "Test this site now" button in the configuration dashboard fetches live
 data with the saved options so you can confirm a key or a feed URL works.
+
+#### Which sites can be added?
+
+Three custom types cover almost any source:
+
+| Type | Use when | How it reads listings |
+|---|---|---|
+| **RSS / Atom feed** | the board or careers page publishes a feed | parses items; lightest on the site |
+| **Generic JSON API** | the site has a documented JSON endpoint | dotted-path field mapping |
+| **Web page (HTML)** | there is only a normal web page | schema.org `JobPosting` data embedded in the page → job links followed to detail pages → CSS selectors you configure |
+
+When you create a custom site the dashboard fetches the URL once and tells
+you what it found (feed items, JobPosting objects, job-looking links, or
+nothing). It refuses URLs that answer **HTTP 403** (automated access blocked),
+that robots.txt disallows, or that are the wrong kind (e.g. a feed added as a
+page), and it switches an RSS site to the feed a page advertises.
+
+#### Site registry
+
+`config/site_registry.json` (or `JOB_SEARCH_REGISTRY`) keeps one row per host:
+
+| Field | Meaning |
+|---|---|
+| `host` | lowercased host without `www.`; seed rows use the registrable domain and match sub-hosts |
+| `status` | `ok` · `forbidden` · `empty` (reachable, no listings) · `error` (network) |
+| `active` | `false` when the host forbids automated access — HTTP 401/403, robots.txt disallow, known terms |
+| `message` | the warning shown to the user |
+| `source` | `builtin` · `probe` (Test / URL check) · `search` · `manual` |
+| `created_at`, `updated_at`, `checks`, `last_url`, `last_status_code` | audit trail |
+
+The row is updated on **every** check: *Test this site now*, the URL check
+when a custom site is created, every search run, and *Re-check* in the
+Site registry tab. Consequences of `active = false`:
+
+* the site cannot be created (even with "skip the URL check"),
+* an enabled site on that host fails validation, so it cannot be saved enabled,
+* searches skip it and show the saved warning,
+* *Test this site now* / *Re-check* still make one live request, so the row recovers as soon as the site allows access again.
+
+The built-in seed (Indeed, Monster, Craigslist, LinkedIn, Glassdoor, ZipRecruiter,
+Dice, SimplyHired, CareerBuilder) is only a starting point; re-checking
+overwrites it with live results, and rows can be removed.
+
+#### Access policy
+
+The web-page reader does what a person's browser does where the site allows
+it — including executing JavaScript in real Chromium — and it identifies
+itself. It does **not** spoof fingerprints, solve CAPTCHA/bot-protection
+challenges, rotate identities, or retry after a 401/403/429. `robots.txt`
+is a crawler courtesy, not permission to scrape; the 403 a site returns is
+its answer, and circumventing a block is what made scraping unlawful in
+*Craigslist v. 3Taps* (CFAA) — *hiQ v. LinkedIn* protected only public data
+gathered without circumvention. Much of Indeed's inventory is available
+through the **Adzuna** provider (free API key); The Muse and USAJOBS cover
+on-site US roles; Reed covers the UK.
+
+#### Web page (HTML)
+
+```json
+{ "id": "acme-careers", "provider": "html", "name": "Acme careers", "enabled": true,
+  "options": { "url": "https://careers.example.com/jobs?q={keyword}&page={page}", "pages": 2,
+               "follow_links": "auto", "max_detail_pages": 15, "delay_seconds": 1 } }
+```
+
+What happens on every page:
+
+1. `robots.txt` of the host is fetched (cached an hour) and the URL is checked
+   with RFC 9309 rules (wildcards, longest match, `Crawl-delay`). Disallowed
+   URLs are never requested.
+2. The page is fetched with the identifying `User-Agent`
+   (`Mozilla/5.0 (compatible; JobSearchDashboard/2.0; …)`, robots token
+   `JobSearchDashboard`) and at least `delay_seconds` between requests to
+   the same host.
+3. `<script type="application/ld+json">` blocks are parsed for
+   `JobPosting` objects (also inside `@graph` and `ItemList`) → title,
+   company, location (incl. `TELECOMMUTE`), salary with unit, employment
+   type, dates, URL. Expired postings (`validThrough` in the past) are
+   dropped.
+4. If `item_selector` is set, each matching element is read with the field
+   selectors (`title_selector`, `link_selector`, `company_selector`,
+   `location_selector`, `salary_selector`, `date_selector`,
+   `job_type_selector`).
+5. If the page yielded nothing (or `follow_links` = `always`), job-looking
+   links on the same host are followed — up to `max_detail_pages` — and each
+   detail page is parsed for `JobPosting` data, falling back to Open Graph /
+   `<h1>` / meta description. `link_pattern` (regex) narrows which links
+   count as jobs.
+6. Without a `{keyword}` placeholder, results are filtered locally by your
+   titles.
+
+**JavaScript-rendered pages.** With Playwright installed
+(`pip install -r requirements-browser.txt && python -m playwright install chromium`)
+the `render` option controls a real headless Chromium: `auto` (default)
+loads a page in the browser only when the plain fetch looks
+JavaScript-rendered, `always` renders every page (listing and detail),
+`never` sticks to plain HTTP. Rendering runs in a child process, sends the
+same identifying User-Agent, skips images/fonts/media, and treats a
+401/403/429 (including bot-protection challenge pages) as access denied —
+the run stops and the host is recorded as forbidden. Without Playwright,
+such pages are reported as "appears to render results with JavaScript".
+Needs the `beautifulsoup4` package.
 
 #### Custom RSS / Atom feed
 
@@ -112,6 +216,10 @@ items (blank if the response is already a list).
 | `salary.include_unlisted` | bool | Keep listings with no pay information (or a different currency). |
 | `posted_within_days` | int or null | Drop listings older than this. Unknown dates pass. |
 
+City preferences imply their country for remote roles: with only
+`Philadelphia, PA` listed, a remote job "open to USA" still passes (an
+on-site job in New York does not).
+
 ### How filtering and ranking work
 
 1. **Hard filters** — exclude keywords, job type, schedule, workplace,
@@ -123,6 +231,8 @@ items (blank if the response is already a list).
 3. **Strict filtering** (`search.strict_filtering`, also a toggle on the
    Research page) hides listings that fail a hard filter. Turn it off to see
    everything ranked, with the failing reason in the `filter_notes` column.
+   When every fetched listing is removed, the Research page says which
+   filters removed them (e.g. `location (9), job type (2)`).
 
 ## 3. Search behaviour (`search`)
 
@@ -131,7 +241,7 @@ items (blank if the response is already a list).
 | `timeout_seconds` | 15 | Per-request timeout. Sites are queried in parallel. |
 | `strict_filtering` | true | See above. |
 | `dedupe_by_url` | true | Drop the same listing found on several sites. |
-| `user_agent` | `JobSearchDashboard/2.0 …` | Sent with every request. |
+| `user_agent` | `Mozilla/5.0 (compatible; JobSearchDashboard/2.0; personal job tracker)` | Sent with every request; the product token is used for robots.txt groups. |
 
 ## 4. Validation
 

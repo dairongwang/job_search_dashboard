@@ -1,4 +1,5 @@
 -r requirements.txt
 -r requirements-config.txt
+-r requirements-browser.txt
 pytest>=8
 pyflakes>=3

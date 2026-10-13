@@ -13,6 +13,12 @@ import jobsearch_sources as js
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_registry(tmp_path, monkeypatch):
+    """Every test gets its own site registry file (seeded with the built-in list)."""
+    monkeypatch.setenv(jc.ENV_REGISTRY_VAR, str(tmp_path / "registry.json"))
+
+
 @pytest.fixture
 def config_path(tmp_path, monkeypatch) -> Path:
     path = tmp_path / "cfg.json"
@@ -33,9 +39,11 @@ class FakeTransport:
     def __init__(self, responses: dict[str, bytes | str | dict | list | Exception]):
         self.responses = responses
         self.calls: list[tuple[str, dict[str, str]]] = []
+        self.bodies: list[bytes | None] = []
 
-    def __call__(self, url: str, headers: dict[str, str], timeout: int) -> bytes:
+    def __call__(self, url: str, headers: dict[str, str], timeout: int, data: bytes | None = None) -> bytes:
         self.calls.append((url, headers))
+        self.bodies.append(data)
         for needle, payload in self.responses.items():
             if needle in url:
                 if isinstance(payload, Exception):
