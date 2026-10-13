@@ -1,0 +1,27 @@
+# One image, two entrypoints. The compose file (or your orchestrator) decides
+# which dashboard a container runs, so operation and configuration can be
+# deployed, scaled and secured independently.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+    JOB_SEARCH_CONFIG=/data/job_search_config.json \
+    JOB_SEARCH_DB=/data/job_search.db
+
+WORKDIR /app
+COPY requirements.txt requirements-config.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-config.txt
+
+COPY jobsearch_config ./jobsearch_config
+COPY jobsearch_sources ./jobsearch_sources
+COPY app.py config_dashboard.py ./
+COPY config/job_search_config.example.json ./config/
+
+RUN mkdir -p /data && useradd --create-home appuser && chown -R appuser /app /data
+USER appuser
+VOLUME ["/data"]
+
+# Default: the main dashboard. Override the command for the configuration dashboard.
+EXPOSE 8501 8502
+CMD ["streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]

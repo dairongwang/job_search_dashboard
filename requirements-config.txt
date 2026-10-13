@@ -1,0 +1,3 @@
+# Configuration dashboard (config_dashboard.py) — can be installed on its own.
+# jobsearch_config itself has no third-party dependencies; Streamlit is only for the UI.
+streamlit>=1.50

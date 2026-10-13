@@ -1,0 +1,3 @@
+# Main dashboard (app.py)
+streamlit>=1.50
+pandas>=2.2

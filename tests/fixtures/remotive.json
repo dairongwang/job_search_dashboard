@@ -1,0 +1,11 @@
+{"jobs": [
+  {"id": 1, "url": "https://remotive.com/remote-jobs/data/senior-data-analyst-1", "title": "Senior Data Analyst", "company_name": "Acme Health",
+   "category": "Data", "tags": ["sql", "python"], "job_type": "full_time", "publication_date": "2026-10-10T09:00:00",
+   "candidate_required_location": "USA", "salary": "$90k - $120k / year", "description": "<p>We need <b>SQL</b>, Python and Tableau.</p>"},
+  {"id": 2, "url": "https://remotive.com/remote-jobs/marketing/intern-2", "title": "Marketing Intern", "company_name": "Beta",
+   "category": "Marketing", "tags": [], "job_type": "internship", "publication_date": "2026-08-01T09:00:00",
+   "candidate_required_location": "Europe", "salary": "", "description": "Social media and email campaigns."},
+  {"id": 3, "url": "https://remotive.com/remote-jobs/data/contract-analyst-3", "title": "Data Analyst (Contract)", "company_name": "Gamma",
+   "category": "Data", "tags": ["excel"], "job_type": "contract", "publication_date": "2026-10-11T09:00:00",
+   "candidate_required_location": "Worldwide", "salary": "", "description": "Excel and SQL reporting, 6 month contract."}
+]}

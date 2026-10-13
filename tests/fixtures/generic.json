@@ -1,0 +1,6 @@
+{"data": {"jobs": [
+  {"id": "a1", "name": "Analytics Engineer", "employer": {"name": "Theta"}, "where": "Remote - United States", "link": "https://theta.example.com/a1",
+   "body": "dbt, SQL, Python", "pay": {"min": 100000, "max": 130000}, "kind": "Full Time", "posted": "2026-10-11"},
+  {"id": "a2", "name": "Office Manager", "employer": {"name": "Theta"}, "where": "Austin, TX", "link": "https://theta.example.com/a2",
+   "body": "Front desk", "pay": {"min": null, "max": null}, "kind": "Part Time", "posted": "2026-10-01"}
+]}}

@@ -1,0 +1,7 @@
+{"jobs": [
+  {"id": 9, "url": "https://jobicy.com/jobs/9", "jobTitle": "BI Analyst", "companyName": "Delta", "jobGeo": "USA",
+   "jobType": ["full-time"], "jobLevel": "Mid", "jobIndustry": ["Data Science"], "annualSalaryMin": 60000, "annualSalaryMax": 70000,
+   "salaryCurrency": "USD", "jobExcerpt": "Excel, Power BI dashboards", "pubDate": "2026-10-11 10:00:00"},
+  {"id": 10, "url": "https://remotive.com/remote-jobs/data/senior-data-analyst-1", "jobTitle": "Senior Data Analyst", "companyName": "Acme Health",
+   "jobGeo": "Anywhere", "jobType": ["full-time"], "jobIndustry": [], "jobExcerpt": "duplicate of remotive 1", "pubDate": "2026-10-10 10:00:00"}
+]}

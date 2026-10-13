@@ -1,0 +1,38 @@
+# docker compose up app                      -> operation only (port 8501)
+# docker compose --profile config up         -> operation + configuration dashboard (8501 + 8502)
+# docker compose --profile config up config  -> configuration dashboard only
+#
+# Both services share ./data, where the config JSON and SQLite DB live.
+# Put site credentials in .env (see .env.example); they are referenced as ${NAME} in the config.
+services:
+  app:
+    build: .
+    image: job-search-dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      JOB_SEARCH_CONFIG: /data/job_search_config.json
+      JOB_SEARCH_DB: /data/job_search.db
+      JOB_SEARCH_CONFIG_URL: http://localhost:8502
+    restart: unless-stopped
+
+  config:
+    build: .
+    image: job-search-dashboard
+    profiles: ["config"]
+    command: ["streamlit", "run", "config_dashboard.py", "--server.port", "8502", "--server.address", "0.0.0.0"]
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./data:/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      JOB_SEARCH_CONFIG: /data/job_search_config.json
+      JOB_SEARCH_APP_URL: http://localhost:8501

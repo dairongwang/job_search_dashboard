@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel><title>Acme careers</title>
+<item><title>Acme: Data Analyst</title><link>https://acme.example.com/jobs/1</link><guid>1</guid>
+<description><![CDATA[<p>Remote (US). SQL and Python. Permanent, full time. $95,000 - $110,000</p>]]></description>
+<pubDate>Sat, 10 Oct 2026 09:00:00 GMT</pubDate><category>Full-time</category></item>
+<item><title>Acme: Warehouse Associate</title><link>https://acme.example.com/jobs/2</link><guid>2</guid>
+<description>Temporary seasonal role in Reading, PA.</description><pubDate>Fri, 09 Oct 2026 09:00:00 GMT</pubDate><category>Temporary</category></item>
+</channel></rss>

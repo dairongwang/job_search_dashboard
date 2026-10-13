@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-12T17:54:06",
+  "sites": [
+    {
+      "id": "remotive",
+      "provider": "remotive",
+      "name": "Remotive",
+      "enabled": true,
+      "max_results": 20,
+      "options": {
+        "category": "data"
+      },
+      "notes": ""
+    },
+    {
+      "id": "jobicy",
+      "provider": "jobicy",
+      "name": "Jobicy",
+      "enabled": true,
+      "max_results": 20,
+      "options": {
+        "geo": "usa",
+        "industry": ""
+      },
+      "notes": ""
+    },
+    {
+      "id": "arbeitnow",
+      "provider": "arbeitnow",
+      "name": "Arbeitnow",
+      "enabled": false,
+      "max_results": 30,
+      "options": {
+        "pages": 1
+      },
+      "notes": ""
+    },
+    {
+      "id": "remoteok",
+      "provider": "remoteok",
+      "name": "Remote OK",
+      "enabled": false,
+      "max_results": 30,
+      "options": {},
+      "notes": ""
+    },
+    {
+      "id": "themuse",
+      "provider": "themuse",
+      "name": "The Muse",
+      "enabled": true,
+      "max_results": 20,
+      "options": {
+        "category": "Data and Analytics",
+        "level": "",
+        "api_key": "",
+        "pages": 1
+      },
+      "notes": ""
+    },
+    {
+      "id": "himalayas",
+      "provider": "himalayas",
+      "name": "Himalayas",
+      "enabled": false,
+      "max_results": 30,
+      "options": {},
+      "notes": ""
+    },
+    {
+      "id": "adzuna",
+      "provider": "adzuna",
+      "name": "Adzuna",
+      "enabled": false,
+      "max_results": 25,
+      "options": {
+        "country": "us",
+        "app_id": "${ADZUNA_APP_ID}",
+        "app_key": "${ADZUNA_APP_KEY}"
+      },
+      "notes": "Enable after adding ADZUNA_APP_ID / ADZUNA_APP_KEY to .env"
+    },
+    {
+      "id": "reed",
+      "provider": "reed",
+      "name": "Reed",
+      "enabled": false,
+      "max_results": 25,
+      "options": {
+        "api_key": "${REED_API_KEY}",
+        "distance_miles": 15
+      },
+      "notes": ""
+    },
+    {
+      "id": "usajobs",
+      "provider": "usajobs",
+      "name": "USAJOBS",
+      "enabled": false,
+      "max_results": 25,
+      "options": {
+        "api_key": "${USAJOBS_API_KEY}",
+        "email": "${USAJOBS_EMAIL}"
+      },
+      "notes": ""
+    },
+    {
+      "id": "acme-careers",
+      "provider": "rss",
+      "name": "Acme careers (example RSS)",
+      "enabled": false,
+      "max_results": 20,
+      "options": {
+        "url": "https://careers.example.com/jobs.rss?q={keyword}",
+        "title_format": "company: title",
+        "workplace": "hybrid"
+      },
+      "notes": "Example of a custom feed. Replace the URL or remove."
+    },
+    {
+      "id": "example-json-api",
+      "provider": "json",
+      "name": "Example JSON API",
+      "enabled": false,
+      "max_results": 20,
+      "options": {
+        "url": "https://jobs.example.com/api/search?q={keyword}&limit={limit}",
+        "items_path": "data.jobs",
+        "mapping": {
+          "title": "name",
+          "organization": "employer.name",
+          "location": "where",
+          "url": "link",
+          "description": "body",
+          "salary_min": "pay.min",
+          "salary_max": "pay.max",
+          "job_type": "kind",
+          "published": "posted",
+          "id": "id"
+        },
+        "headers": {
+          "Authorization": "Bearer ${EXAMPLE_API_TOKEN}"
+        },
+        "workplace": ""
+      },
+      "notes": "Example of a generic JSON endpoint with a field mapping."
+    }
+  ],
+  "preferences": {
+    "titles": [
+      "data analyst",
+      "business intelligence analyst",
+      "analytics engineer"
+    ],
+    "industries": [
+      "Data / Analytics",
+      "Healthcare / Life Sciences"
+    ],
+    "skills": [
+      "SQL",
+      "Python",
+      "Tableau",
+      "Power BI",
+      "Excel",
+      "dbt"
+    ],
+    "min_skill_matches": 1,
+    "exclude_keywords": [
+      "clearance",
+      "unpaid"
+    ],
+    "locations": [
+      "United States",
+      "Philadelphia, PA"
+    ],
+    "workplaces": [
+      "remote",
+      "hybrid"
+    ],
+    "job_types": [
+      "permanent",
+      "contract"
+    ],
+    "schedules": [
+      "full_time"
+    ],
+    "include_unknown_job_type": true,
+    "salary": {
+      "minimum": 80000,
+      "maximum": null,
+      "currency": "USD",
+      "period": "year",
+      "include_unlisted": true
+    },
+    "posted_within_days": 21
+  },
+  "search": {
+    "timeout_seconds": 15,
+    "strict_filtering": true,
+    "dedupe_by_url": true,
+    "user_agent": "JobSearchDashboard/2.0 (personal local tracker)"
+  }
+}

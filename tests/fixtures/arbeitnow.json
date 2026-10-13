@@ -1,0 +1,6 @@
+{"data": [
+  {"slug": "data-analyst-berlin", "company_name": "Epsilon GmbH", "title": "Data Analyst (m/w/d)", "description": "SQL und Python. Visa sponsorship.",
+   "remote": false, "url": "https://www.arbeitnow.com/view/data-analyst-berlin", "tags": ["Analytics"], "job_types": ["Full-time"], "location": "Berlin", "created_at": 1791000000},
+  {"slug": "nurse", "company_name": "Clinic", "title": "Nurse", "description": "Care.", "remote": false, "url": "https://www.arbeitnow.com/view/nurse",
+   "tags": [], "job_types": ["Part-time"], "location": "Munich", "created_at": 1791000000}
+], "links": {"next": null}, "meta": {}}
