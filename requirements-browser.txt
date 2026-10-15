@@ -1,3 +1,5 @@
-# Optional: headless-browser rendering for JavaScript-driven job boards (Web page sites, "Render with browser").
-# After installing run:  python -m playwright install chromium
+# Headless-browser rendering (JavaScript-driven job boards, sites searched through their own form).
+# Playwright is now part of requirements.txt / requirements-config.txt; this file is kept for older setups.
+# The Chromium build is downloaded automatically the first time it is needed; to do it up front:
+#   python -m jobsearch_sources setup-browser      (or: python -m playwright install chromium)
 playwright>=1.45

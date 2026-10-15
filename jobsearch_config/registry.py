@@ -12,6 +12,9 @@ Fields per row:
 * ``status``      — ``ok`` | ``forbidden`` | ``empty`` | ``error``
 * ``active``      — False when the site forbids automated access (HTTP 401/403, robots.txt
                     disallow, known terms); such hosts cannot be added or enabled
+* ``reason``      — why it is inactive: ``terms`` (the site's terms of use prohibit robots /
+                    scrapers — a *policy* block that no successful fetch can lift; only an
+                    administrator override can), ``http`` (401/403/429), ``robots`` (robots.txt)
 * ``message``     — the warning / explanation shown to the user
 * ``source``      — ``builtin`` | ``probe`` | ``search`` | ``manual``
 * ``created_at`` / ``updated_at`` — ISO timestamps
@@ -37,6 +40,8 @@ ENV_REGISTRY_VAR = "JOB_SEARCH_REGISTRY"
 REGISTRY_FILENAME = "site_registry.json"
 
 STATUSES = ("ok", "forbidden", "empty", "error")
+REASONS = ("", "terms", "http", "robots")
+POLICY_REASONS = ("terms",)  # blocks that are the site's stated policy, not a technical answer: sticky until an administrator overrides
 
 # Seed knowledge. Every entry can be re-checked and is overwritten by live results.
 SEED_SITES: dict[str, str] = {
@@ -79,10 +84,17 @@ class SiteRecord:
     checks: int = 0
     last_url: str = ""
     last_status_code: int = 0
+    reason: str = ""  # terms | http | robots | "" (see module docstring)
+    last_scan: str = ""  # last compliance scan of this host (ISO timestamp)
 
     @property
     def forbidden(self) -> bool:
         return not self.active
+
+    @property
+    def policy_block(self) -> bool:
+        """The site's terms prohibit automated access: cannot be lifted by a live check."""
+        return not self.active and self.reason in POLICY_REASONS
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,6 +107,9 @@ class SiteRecord:
         row.status = row.status if row.status in STATUSES else "error"
         row.active = bool(row.active)
         row.checks = int(row.checks or 0)
+        row.reason = row.reason if row.reason in REASONS else ""
+        if row.source == "builtin" and not row.active and not row.reason:
+            row.reason = "terms"  # registries written before the reason field: the seed list is terms-based
         return row
 
 
@@ -110,9 +125,10 @@ def registry_path(path: str | os.PathLike[str] | None = None) -> Path:
 class Registry:
     """In-memory view of the registry file with upsert/lookup helpers."""
 
-    def __init__(self, path: Path, rows: Iterable[SiteRecord] = ()):
+    def __init__(self, path: Path, rows: Iterable[SiteRecord] = (), meta: dict[str, Any] | None = None):
         self.path = path
         self.rows: dict[str, SiteRecord] = {row.host: row for row in rows}
+        self.meta: dict[str, Any] = dict(meta or {})  # e.g. last_compliance_scan, last_compliance_summary
         self._lock = threading.Lock()
 
     # -- persistence ---------------------------------------------------------
@@ -121,22 +137,38 @@ class Registry:
     def load(cls, path: str | os.PathLike[str] | None = None) -> "Registry":
         target = registry_path(path)
         rows: list[SiteRecord] = []
+        meta: dict[str, Any] = {}
         if target.is_file():
             with target.open("r", encoding="utf-8") as handle:
                 raw = json.load(handle)
             for item in (raw.get("sites") if isinstance(raw, dict) else raw) or []:
                 if isinstance(item, dict) and item.get("host"):
                     rows.append(SiteRecord.from_dict(item))
-        registry = cls(target, rows)
+            if isinstance(raw, dict) and isinstance(raw.get("meta"), dict):
+                meta = raw["meta"]
+        registry = cls(target, rows, meta)
         if not target.is_file():
             registry.seed()
             registry.save()
+        elif registry.repair_seeds():
+            registry.save()
         return registry
+
+    def repair_seeds(self) -> int:
+        """Restore seeded terms-based blocks that a live check once flipped active (only a manual override may lift them)."""
+        repaired = 0
+        for host, message in SEED_SITES.items():
+            row = self.rows.get(host)
+            if row is not None and row.active and row.source != "manual":
+                row.active, row.status, row.reason, row.message = False, "forbidden", "terms", message
+                row.updated_at = _now()
+                repaired += 1
+        return repaired
 
     def save(self) -> Path:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {"version": 1, "updated_at": _now(), "sites": [row.to_dict() for row in sorted(self.rows.values(), key=lambda r: r.host)]}
+            payload = {"version": 1, "updated_at": _now(), "meta": dict(self.meta), "sites": [row.to_dict() for row in sorted(self.rows.values(), key=lambda r: r.host)]}
             fd, tmp = tempfile.mkstemp(prefix=".tmp-registry-", suffix=".json", dir=self.path.parent)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -153,7 +185,7 @@ class Registry:
         added = 0
         for host, message in SEED_SITES.items():
             if host not in self.rows:
-                self.rows[host] = SiteRecord(host=host, status="forbidden", active=False, message=message, source="builtin")
+                self.rows[host] = SiteRecord(host=host, status="forbidden", active=False, message=message, source="builtin", reason="terms")
                 added += 1
         return added
 
@@ -184,40 +216,62 @@ class Registry:
 
     # -- updates ---------------------------------------------------------------
 
-    def record(self, url: str, status: str, message: str, source: str = "probe", status_code: int = 0, save: bool = True) -> SiteRecord:
+    def record(
+        self, url: str, status: str, message: str, source: str = "probe", status_code: int = 0, save: bool = True, reason: str = ""
+    ) -> SiteRecord:
         """Upsert the row for ``url``'s host from a live check.
 
         ``status``: ok | forbidden | empty | error. ``forbidden`` clears the active
-        flag; ``ok``/``empty`` set it; ``error`` leaves it unchanged.
+        flag (``reason`` says why: http | robots | terms); ``ok``/``empty`` set it —
+        **unless the row is a policy block** (``reason == "terms"``): a page that
+        happens to load does not change what the site's terms say, so such rows
+        keep ``active = False`` and their message; only ``set_active`` (an
+        administrator override) lifts them. ``error`` leaves the flag unchanged.
         """
         host = host_of(url)
         if status not in STATUSES:
             status = "error"
-        row = self.rows.get(host)
+        row = self.lookup(url)  # a seed row for the registrable domain also covers its sub-hosts
+        if row is None or row.host != host and not row.policy_block:
+            row = self.rows.get(host)
         if row is None:
             row = SiteRecord(host=host, source=source)
             self.rows[host] = row
-        row.status = status
-        row.message = message
-        row.source = source
         row.updated_at = _now()
         row.checks += 1
         row.last_url = url
         row.last_status_code = int(status_code or 0)
+        if row.policy_block:
+            # sticky: note the check, keep the verdict and the explanation
+            row.status = "forbidden"
+            row.source = source if source != "builtin" else row.source
+            if save:
+                self.save()
+            return row
+        row.status = status
+        row.message = message
+        row.source = source
         if status == "forbidden":
             row.active = False
+            row.reason = reason if reason in REASONS and reason else (row.reason or "http")
         elif status in ("ok", "empty"):
             row.active = True
+            row.reason = ""
         if save:
             self.save()
         return row
 
-    def set_active(self, host: str, active: bool, message: str = "", save: bool = True) -> SiteRecord | None:
+    def set_active(self, host: str, active: bool, message: str = "", save: bool = True, reason: str = "") -> SiteRecord | None:
+        """Administrator override: activate a host, or block it (``reason`` = terms | http | robots)."""
         row = self.rows.get(host_of(host))
         if row is None:
-            return None
+            if active:
+                return None
+            row = SiteRecord(host=host_of(host), source="manual")
+            self.rows[row.host] = row
         row.active = active
         row.status = "ok" if active else "forbidden"
+        row.reason = "" if active else (reason if reason in REASONS and reason else "terms")
         row.source = "manual"
         row.updated_at = _now()
         if message:
@@ -235,6 +289,18 @@ class Registry:
 
 def load_registry(path: str | os.PathLike[str] | None = None) -> Registry:
     return Registry.load(path)
+
+
+def block_reason(message: str, status_code: int = 0) -> str:
+    """Guess the registry ``reason`` of a refusal from its explanation."""
+    text = (message or "").lower()
+    if "robots.txt" in text:
+        return "robots"
+    if status_code in (401, 403, 429) or "http 40" in text or "http 429" in text or "refused" in text:
+        return "http"
+    if "terms" in text or "prohibit" in text:
+        return "terms"
+    return "http"
 
 
 def classify_outcome(error: str, denied: bool, empty: bool) -> tuple[str, str]:

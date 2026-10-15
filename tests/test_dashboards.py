@@ -134,13 +134,14 @@ def test_config_dashboard_refuses_non_feed_urls(apps, transport):
         _buttons(at, "Create site")[0].click().run()
 
     create("indeed", "https://www.indeed.com/")
-    assert any("refused automated access" in e.value and "Adzuna" in e.value for e in at.error)
+    assert any("prohibits automated access by its terms" in e.value and "Adzuna" in e.value for e in at.error)  # refused without a fetch
     assert any("Indeed publishes no feed" in w.value for w in at.warning)  # shown as soon as the URL is typed
     assert jc.load_config().get_site("indeed") is None
 
     create("craigslist", "https://www.craigslist.org/search/area/philadelphia?cat=jjj")
-    assert any("web page (HTML)" in e.value for e in at.error)
+    assert any("prohibits automated access by its terms" in e.value and "Craigslist" in e.value for e in at.error)
     assert jc.load_config().get_site("craigslist") is None
+    assert not jc.load_registry().lookup("craigslist.org").active  # still blocked
 
     create("acme", "https://careers.example.com/")
     assert jc.load_config().get_site("acme").options["url"] == "https://careers.example.com/feed.rss"
@@ -172,10 +173,10 @@ def test_config_dashboard_registry_tab_and_enforcement(apps, transport):
     assert {"host", "active", "status", "checks", "created", "updated", "message"} <= set(table.columns)
     assert "indeed.com" in set(table["host"]) and not table.set_index("host").loc["indeed.com", "active"]
 
-    # creating a web-page site on a host that answers 403: refused + recorded
+    # creating a feed site on a host that answers 403: refused + recorded
     ti = {t.label: t for t in at.text_input}
     sb = {s.label: s for s in at.selectbox}
-    sb["Type"].set_value(next(o for o in sb["Type"].options if "Web page" in str(o)))
+    assert [str(o) for o in sb["Type"].options] and not any("Web page" in str(o) for o in sb["Type"].options)  # feeds / APIs only
     ti["Site id"].set_value("wall")
     ti["URL"].set_value("https://wall.example.com/jobs")
     _buttons(at, "Create site")[0].click().run()
@@ -228,16 +229,12 @@ def test_investigate_panel_suggests_and_adds_workday_site(apps, transport):
     assert site is not None and site.provider == "workday" and site.options["tenant"] == "ouryahoo" and site.options["site"] == "careers"
 
 
-def test_platform_tab_creates_site(apps):
+
+
+def test_add_site_tabs_are_catalog_form_and_feed_api(apps):
     at = AppTest.from_file(str(ROOT / "config_dashboard.py"), default_timeout=60).run()
+    labels = [t.label for t in at.tabs if t.label in ("From the catalog", "Web page with a search form", "Custom feed, API", "Company careers platform", "Custom feed, API or web page")]
+    assert labels == ["From the catalog", "Web page with a search form", "Custom feed, API"]
+    assert not [b for b in at.button if b.label == "Create platform site"]
     sb = {s.label: s for s in at.selectbox}
-    sb["Platform"].set_value(next(o for o in sb["Platform"].options if "Greenhouse" in str(o)))
-    at.run()
-    by_key = {t.key: t for t in at.text_input}
-    by_key["add-platform-id"].set_value("airbnb-gh")
-    by_key["add-platform-name"].set_value("Airbnb")
-    by_key["add-platform:greenhouse:board"].set_value("airbnb")
-    _buttons(at, "Create platform site")[0].click().run()
-    assert not at.exception, at.exception
-    site = jc.load_config().get_site("airbnb-gh")
-    assert site is not None and site.provider == "greenhouse" and site.options["board"] == "airbnb" and site.enabled
+    assert [o for o in sb["Type"].options] == ["RSS / Atom feed", "Generic JSON API"]

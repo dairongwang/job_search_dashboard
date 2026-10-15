@@ -142,6 +142,19 @@ def probe(
 
     The outcome is written to the site registry unless ``record`` is False.
     """
+    try:
+        blocked = load_registry().forbidden(url)
+    except (OSError, ValueError):
+        blocked = None
+    if blocked is not None and blocked.policy_block:
+        # the site's terms prohibit robots/scrapers: do not even fetch; the block is lifted only by an administrator
+        result = ProbeResult("blocked", f"{blocked.host} prohibits automated access by its terms of use — {blocked.message}", url, expect=expect)
+        if record:
+            try:
+                load_registry().record(url, "forbidden", blocked.message, source="probe", reason="terms")
+            except (OSError, ValueError):
+                pass
+        return result
     result = _probe(url, settings, headers, expect)
     if record:
         try:
@@ -149,7 +162,8 @@ def probe(
             if result.status == "blocked":
                 match = re.search(r"HTTP (\d{3})", result.message)
                 status_code = int(match.group(1)) if match else 403
-            load_registry().record(url, result.registry_status, result.message, source="probe", status_code=status_code)
+            reason = "robots" if result.status == "robots" else ("http" if result.status == "blocked" else "")
+            load_registry().record(url, result.registry_status, result.message, source="probe", status_code=status_code, reason=reason)
         except (OSError, ValueError):
             pass
     return result

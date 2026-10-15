@@ -9,7 +9,7 @@ services:
     build:
       context: .
       args:
-        WITH_BROWSER: "${WITH_BROWSER:-0}"   # WITH_BROWSER=1 docker compose build  -> adds Chromium for JS-rendered boards
+        WITH_BROWSER: "${WITH_BROWSER:-1}"   # Chromium included by default; WITH_BROWSER=0 docker compose build -> smaller image without it
     image: job-search-dashboard
     ports:
       - "8501:8501"

@@ -14,6 +14,7 @@ Streamlit configuration dashboard is not running::
     python -m jobsearch_config set-pref salary.minimum 80000
     python -m jobsearch_config import other.json
     python -m jobsearch_config export > backup.json
+    python -m jobsearch_config web-search [on|off] [--admin-token T]   # administrator switch for web-page search
 """
 
 from __future__ import annotations
@@ -106,6 +107,26 @@ def cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_web_search(args: argparse.Namespace) -> int:
+    from . import admin
+
+    config = store.load_config(args.config)
+    if not args.state:
+        allowed, why = admin.web_page_search_allowed(config)
+        print(f"web-page search: {'ON' if allowed else 'OFF'} — {why}")
+        print(f"administrator token configured in this process: {'yes' if admin.admin_configured() else 'no (set ' + admin.ENV_ADMIN_TOKEN + ')'}")
+        return 0
+    token = args.admin_token if args.admin_token is not None else admin.admin_token()
+    try:
+        admin.set_web_page_search(config, args.state == "on", token)
+    except admin.AdminRequired as exc:
+        print(f"Refused: {exc}")
+        return 3
+    store.save_config(config, args.config)
+    print(f"web-page search switched {args.state.upper()} by the administrator ({config.search.web_page_search_changed_at}).")
+    return 0
+
+
 def cmd_set_pref(args: argparse.Namespace) -> int:
     config = store.load_config(args.config)
     prefs = config.preferences
@@ -187,6 +208,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_import)
     sub.add_parser("export", help="Print the config JSON (for backups).").set_defaults(func=cmd_export)
+    p = sub.add_parser("web-search", help="Show or change the administrator switch for web-page based search.")
+    p.add_argument("state", nargs="?", choices=["on", "off"], help="Omit to show the current state.")
+    p.add_argument("--admin-token", default=None, help="Administrator token (default: the JOB_SEARCH_ADMIN_TOKEN environment variable).")
+    p.set_defaults(func=cmd_web_search)
     return parser
 
 

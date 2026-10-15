@@ -29,8 +29,10 @@ class SearchContext:
     settings: SearchSettings
     options: dict[str, Any]  # site.options with ${ENV} resolved
     keywords: list[str] = field(default_factory=list)  # search phrases to try (titles or override)
+    keywords_explicit: bool = False  # True when ``keywords`` were requested for this run (override / form test) rather than defaulted from the titles
     location: str = ""  # first non-remote preferred location, for location-aware APIs
     notes: list[str] = field(default_factory=list)  # adapter remarks surfaced next to the results
+    extra: dict[str, Any] = field(default_factory=dict)  # structured adapter details (e.g. search-form run info)
 
     @property
     def limit(self) -> int:

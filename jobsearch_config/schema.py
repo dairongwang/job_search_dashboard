@@ -219,6 +219,12 @@ class SearchSettings:
     dedupe_by_url: bool = True
     # Conventional crawler format: identifies the app (robots.txt token "JobSearchDashboard") without pretending to be a browser.
     user_agent: str = "Mozilla/5.0 (compatible; JobSearchDashboard/2.0; personal job tracker)"
+    # Web-page based search (HTML sites, search forms, headless browser). Administrator-controlled: changes must be
+    # signed with the administrator token (see jobsearch_config.admin); an unsigned/tampered "on" counts as off.
+    web_page_search: bool = True
+    web_page_search_signature: str = ""  # HMAC written by jobsearch_config.admin.set_web_page_search
+    web_page_search_changed_at: str = ""
+    compliance_scan_hours: int = 24  # how often enabled sites are re-checked for access policy (0 = never)
 
     def __post_init__(self) -> None:
         self.timeout_seconds = max(3, min(int(self.timeout_seconds or 15), 120))
@@ -227,6 +233,10 @@ class SearchSettings:
         self.user_agent = str(self.user_agent or SearchSettings.user_agent)
         if self.user_agent in _LEGACY_USER_AGENTS:
             self.user_agent = SearchSettings.user_agent
+        self.web_page_search = bool(self.web_page_search)
+        self.web_page_search_signature = str(self.web_page_search_signature or "")
+        self.web_page_search_changed_at = str(self.web_page_search_changed_at or "")
+        self.compliance_scan_hours = max(0, min(int(self.compliance_scan_hours or 0), 24 * 30))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "SearchSettings":

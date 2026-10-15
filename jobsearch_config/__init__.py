@@ -35,8 +35,9 @@ from .store import (
     resolve_secret,
     save_config,
 )
-from .registry import ENV_REGISTRY_VAR, SEED_SITES, Registry, SiteRecord, classify_outcome, host_of, load_registry, registry_path
-from .validate import Issue, has_errors, validate
+from .registry import ENV_REGISTRY_VAR, SEED_SITES, Registry, SiteRecord, block_reason, classify_outcome, host_of, load_registry, registry_path
+from .admin import ENV_ADMIN_TOKEN, AdminRequired, admin_configured, set_web_page_search, signature_valid, verify_token, web_page_search_allowed
+from .validate import Issue, has_errors, search_form_status, validate
 
 __all__ = [
     "PROVIDERS", "ProviderSpec", "OptionSpec", "provider", "builtin_providers", "custom_providers", "platform_providers", "default_options",
@@ -45,6 +46,7 @@ __all__ = [
     "AppConfig", "JobPreferences", "SalaryRange", "SearchSettings", "SiteConfig",
     "ENV_PATH_VAR", "config_path", "dumps", "exists", "load_config", "loads", "mtime",
     "resolve_options", "resolve_secret", "save_config",
-    "Issue", "has_errors", "validate",
-    "ENV_REGISTRY_VAR", "SEED_SITES", "Registry", "SiteRecord", "classify_outcome", "host_of", "load_registry", "registry_path",
+    "Issue", "has_errors", "search_form_status", "validate",
+    "ENV_ADMIN_TOKEN", "AdminRequired", "admin_configured", "set_web_page_search", "signature_valid", "verify_token", "web_page_search_allowed",
+    "ENV_REGISTRY_VAR", "SEED_SITES", "Registry", "SiteRecord", "block_reason", "classify_outcome", "host_of", "load_registry", "registry_path",
 ]

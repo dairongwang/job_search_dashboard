@@ -501,8 +501,9 @@ PROVIDERS: dict[str, ProviderSpec] = {
         description=(
             "Any careers page or job-board page. Reads schema.org JobPosting data embedded in the page, follows job links "
             "to detail pages, or uses CSS selectors you provide; JavaScript-rendered pages are loaded in a real headless "
-            "browser when Playwright is installed. Honours robots.txt, identifies itself, waits between requests, and stops "
-            "on HTTP 403."
+            "browser when Playwright is installed. Sites with a search form are driven through a per-site, versioned "
+            "search-form strategy (test it in the Search form panel). Honours robots.txt, identifies itself, waits between "
+            "requests, and stops on HTTP 403."
         ),
         homepage="",
         custom=True,
@@ -522,8 +523,9 @@ PROVIDERS: dict[str, ProviderSpec] = {
                 "Pages to fetch",
                 "int",
                 1,
-                "Result pages to read when the URL contains `{page}` (replaced by 1, 2, 3 …). Paging stops early at the first empty "
-                "page. Example: URL `…/jobs?page={page}` with `3` reads pages 1–3.",
+                "Result pages to read when the URL contains `{page}` (replaced by 1, 2, 3 …); for a site searched through its form, "
+                "how many result pages to collect (presses *Load more* / *Next* that many times minus one). Paging stops early at the "
+                "first empty page. Example: URL `…/jobs?page={page}` with `3` reads pages 1–3.",
                 (),
             ),
             OptionSpec(
@@ -536,24 +538,42 @@ PROVIDERS: dict[str, ProviderSpec] = {
                 ("auto", "always", "never"),
             ),
             OptionSpec(
+                "search_form",
+                "Search form (JSON)",
+                "json",
+                {},
+                "Drives the site's own search form — keyword box, category / country / brand dropdowns, *Find jobs* — with a "
+                "per-site **strategy** (see the *Search form* panel below the site form, which shows the same controls as the "
+                "website so you can test it). `strategy` names a built-in site strategy (e.g. `yahoo-careers`) and `version` the "
+                "form layout it was validated with; older versions are tried automatically when the site changes its form. "
+                "`criteria` holds the values you chose — searches submit them as saved, including the keyword (`keyword_mode`: "
+                "`criteria`, the default, or `titles` to put your preferred titles in the keyword box instead); `validated` records the last passing test (a site cannot be enabled "
+                "without one); `learned` keeps versions the app derived from the live page when no known one matched "
+                "(`learn: false` disables that). Example: `{\"strategy\": \"yahoo-careers\", \"version\": \"2\", \"criteria\": "
+                "{\"categories\": [\"Engineering\"], \"countries\": [\"United States\"], \"brands\": [\"Yahoo\"]}}`. "
+                "For a site without a built-in strategy use `{\"strategy\": \"recipe\", \"fields\": [...], \"fingerprint\": [...], "
+                "\"steps\": [...]}` (see docs/SEARCH_FORMS.md).",
+            ),
+            OptionSpec(
                 "actions",
-                "Search form steps (JSON)",
+                "Search form steps (JSON, legacy)",
                 "json",
                 [],
-                "Steps the browser performs on the page before reading results — exactly what you would do by hand. Targets can be "
-                "CSS or visible text: `{\"placeholder\": \"Key words\"}`, `{\"text\": \"Select countries\"}`, `{\"button\": \"Find jobs\"}`, "
+                "Older way to drive a search form: a flat list of browser steps without fields or fingerprint. Still supported "
+                "(it is run as a *recipe* strategy) but prefer *Search form (JSON)* above, which adds the per-site strategy, "
+                "form versioning and the mirrored test panel. Targets can be CSS or visible text: "
+                "`{\"placeholder\": \"Key words\"}`, `{\"text\": \"Select countries\"}`, `{\"button\": \"Find jobs\"}`, "
                 "`{\"label\": \"Country\"}`, `{\"option\": \"United States\"}`, `{\"css\": \"#q\"}`. Values may use `{keyword}`, `{location}` "
                 "and any key from *Search form values*. Example: `[{\"fill\": {\"placeholder\": \"Key words\"}, \"value\": \"{keyword}\"}, "
-                "{\"click\": {\"text\": \"Select countries\"}}, {\"click\": {\"option\": \"{country}\"}}, {\"press\": \"Escape\"}, "
                 "{\"click\": {\"button\": \"Find jobs\"}}, {\"wait\": \"networkidle\"}]`. Add `\"repeat\": 3, \"snapshot\": true` to a "
                 "'Load more'/'Next' click to collect several pages; `\"optional\": true` ignores a missing element.",
             ),
             OptionSpec(
                 "form_values",
-                "Search form values (JSON)",
+                "Search form values (JSON, legacy)",
                 "json",
                 {},
-                "Named values for the `{placeholders}` used in the steps — the choices you would pick in the site's dropdowns. "
+                "Values for the `{placeholders}` used by the legacy steps above — the choices you would pick in the site's dropdowns. "
                 "A list repeats the step for each item. Example: `{\"category\": \"Engineering\", \"country\": \"United States\", "
                 "\"brands\": [\"Yahoo\", \"Yahoo Finance\"]}`.",
             ),

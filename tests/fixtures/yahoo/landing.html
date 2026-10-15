@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Careers | Yahoo (landing fixture)</title>
+<style>
+  .dropdown-menu { display: none; position: absolute; }
+  .dropdown.show .dropdown-menu { display: block; }
+  .custom-control-input { position: absolute; z-index: -1; opacity: 0; }
+  @media (max-width: 991px) { .desktopSearchWrapper { display: none; } }
+  @media (min-width: 992px) { .mobileSearchWrapper { display: none; } }
+</style>
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('button.dropdown-toggle').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('show')));
+});
+</script>
+</head>
+<body>
+<header id="vmHeader"><ul class="navUl"><li><a href="/careers">CAREERS</a></li><li><a href="/careers/">Search Jobs</a></li><li><a href="/our-story">OUR TEAM</a></li></ul></header>
+<div class="indexSearch">
+	<form action="search.html" method="GET">
+		<div class="desktopSearchWrapper row">
+			<div class="col-3">
+				<div class="searchBox input-group">
+					<input type="text" class="search form-control" id="search-keyword" name="keyword" placeholder="Search by keywords" aria-label="Search by key words">
+					<label id="forSearch" for="search-keyword">Key words</label>
+					<div class="input-group-append">
+						<button class="searchIcon input-group-text"><img id="indexSearchIconId" src="/search.svg" alt="search"></button>
+					</div>
+				</div>
+			</div>
+			<div class="col-2">
+				<div id="selectJobCats" class="dropdown">
+					<button class="btn dropdown-toggle jobSearchDropdown jobCategories" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+						Select job categories
+					</button>
+					<div id="JCDropdown" class="dropdown-menu">
+						<div class="dropdownMenuClear">
+							<div class="dropdownMenuOnly">
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Administration" id="jobCategoryadministration">
+									<label class="custom-control-label" for="jobCategoryadministration">Administration</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Business Development" id="jobCategorybusinessdevelopment">
+									<label class="custom-control-label" for="jobCategorybusinessdevelopment">Business Development</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Business Operations" id="jobCategorybusinessoperations">
+									<label class="custom-control-label" for="jobCategorybusinessoperations">Business Operations</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Content" id="jobCategorycontent">
+									<label class="custom-control-label" for="jobCategorycontent">Content</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Customer Experience" id="jobCategorycustomerexperience">
+									<label class="custom-control-label" for="jobCategorycustomerexperience">Customer Experience</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Design" id="jobCategorydesign">
+									<label class="custom-control-label" for="jobCategorydesign">Design</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="eCommerce Operations" id="jobCategoryecommerceoperations">
+									<label class="custom-control-label" for="jobCategoryecommerceoperations">eCommerce Operations</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Engineering" id="jobCategoryengineering">
+									<label class="custom-control-label" for="jobCategoryengineering">Engineering</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Finance" id="jobCategoryfinance">
+									<label class="custom-control-label" for="jobCategoryfinance">Finance</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Human Resources" id="jobCategoryhumanresources">
+									<label class="custom-control-label" for="jobCategoryhumanresources">Human Resources</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Information Systems" id="jobCategoryinformationsystems">
+									<label class="custom-control-label" for="jobCategoryinformationsystems">Information Systems</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Internship" id="jobCategoryinternship">
+									<label class="custom-control-label" for="jobCategoryinternship">Internship</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Legal" id="jobCategorylegal">
+									<label class="custom-control-label" for="jobCategorylegal">Legal</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Marketing" id="jobCategorymarketing">
+									<label class="custom-control-label" for="jobCategorymarketing">Marketing</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Operations" id="jobCategoryoperations">
+									<label class="custom-control-label" for="jobCategoryoperations">Operations</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Research" id="jobCategoryresearch">
+									<label class="custom-control-label" for="jobCategoryresearch">Research</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Sales" id="jobCategorysales">
+									<label class="custom-control-label" for="jobCategorysales">Sales</label>
+								</div>
+									<div class="custom-control custom-checkbox JCCheckbox">
+									<input type="checkbox" class="custom-control-input" name="categories[]" value="Software Development" id="jobCategorysoftwaredevelopment">
+									<label class="custom-control-label" for="jobCategorysoftwaredevelopment">Software Development</label>
+								</div>
+							</div>
+							<button class="clearMenu" type="button"><h5>Clear</h5></button>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="col-2">
+				<div id="selectJobLocs" class="dropdown">
+					<button class="btn dropdown-toggle jobSearchDropdown jobLocations" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+						Select countries
+					</button>
+					<div id="JLDropdown" class="dropdown-menu">
+						<div class="dropdownMenuClear">
+							<div class="dropdownMenuOnly">
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Australia" id="jobLocationaustralia">
+									<label class="custom-control-label" for="jobLocationaustralia">Australia</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Brazil" id="jobLocationbrazil">
+									<label class="custom-control-label" for="jobLocationbrazil">Brazil</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Canada" id="jobLocationcanada">
+									<label class="custom-control-label" for="jobLocationcanada">Canada</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Denmark" id="jobLocationdenmark">
+									<label class="custom-control-label" for="jobLocationdenmark">Denmark</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="France" id="jobLocationfrance">
+									<label class="custom-control-label" for="jobLocationfrance">France</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Germany" id="jobLocationgermany">
+									<label class="custom-control-label" for="jobLocationgermany">Germany</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Hong Kong" id="jobLocationhongkong">
+									<label class="custom-control-label" for="jobLocationhongkong">Hong Kong</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="India" id="jobLocationindia">
+									<label class="custom-control-label" for="jobLocationindia">India</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Ireland" id="jobLocationireland">
+									<label class="custom-control-label" for="jobLocationireland">Ireland</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Israel" id="jobLocationisrael">
+									<label class="custom-control-label" for="jobLocationisrael">Israel</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Italy" id="jobLocationitaly">
+									<label class="custom-control-label" for="jobLocationitaly">Italy</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Japan" id="jobLocationjapan">
+									<label class="custom-control-label" for="jobLocationjapan">Japan</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="New Zealand" id="jobLocationnewzealand">
+									<label class="custom-control-label" for="jobLocationnewzealand">New Zealand</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Norway" id="jobLocationnorway">
+									<label class="custom-control-label" for="jobLocationnorway">Norway</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Singapore" id="jobLocationsingapore">
+									<label class="custom-control-label" for="jobLocationsingapore">Singapore</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Spain" id="jobLocationspain">
+									<label class="custom-control-label" for="jobLocationspain">Spain</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Sweden" id="jobLocationsweden">
+									<label class="custom-control-label" for="jobLocationsweden">Sweden</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="Taiwan" id="jobLocationtaiwan">
+									<label class="custom-control-label" for="jobLocationtaiwan">Taiwan</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="United Kingdom" id="jobLocationunitedkingdom">
+									<label class="custom-control-label" for="jobLocationunitedkingdom">United Kingdom</label>
+								</div>
+									<div class="custom-control custom-checkbox JLCheckbox">
+									<input type="checkbox" class="custom-control-input" name="locations[]" value="United States" id="jobLocationunitedstates">
+									<label class="custom-control-label" for="jobLocationunitedstates">United States</label>
+								</div>
+							</div>
+							<button class="clearMenu" type="button"><h5>Clear</h5></button>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="col-2">
+				<div id="selectJobBrands" class="dropdown">
+					<button class="btn dropdown-toggle jobSearchDropdown jobBrands" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+						Select brands
+					</button>
+					<div id="JBDropdown" class="dropdown-menu">
+						<div class="dropdownMenuClear">
+							<div class="dropdownMenuOnly">
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Boundless" id="jobBrandboundless">
+									<label class="custom-control-label" for="jobBrandboundless">Boundless</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo" id="jobBrandyahoo">
+									<label class="custom-control-label" for="jobBrandyahoo">Yahoo</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo Engineering" id="jobBrandyahooengineering">
+									<label class="custom-control-label" for="jobBrandyahooengineering">Yahoo Engineering</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo Finance" id="jobBrandyahoofinance">
+									<label class="custom-control-label" for="jobBrandyahoofinance">Yahoo Finance</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo Mail" id="jobBrandyahoomail">
+									<label class="custom-control-label" for="jobBrandyahoomail">Yahoo Mail</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo News" id="jobBrandyahoonews">
+									<label class="custom-control-label" for="jobBrandyahoonews">Yahoo News</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo Search" id="jobBrandyahoosearch">
+									<label class="custom-control-label" for="jobBrandyahoosearch">Yahoo Search</label>
+								</div>
+									<div class="custom-control custom-checkbox JBCheckbox">
+									<input type="checkbox" class="custom-control-input" name="brands[]" value="Yahoo Sports" id="jobBrandyahoosports">
+									<label class="custom-control-label" for="jobBrandyahoosports">Yahoo Sports</label>
+								</div>
+							</div>
+							<button class="clearMenu" type="button"><h5>Clear</h5></button>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="col-1">
+				<div>
+					<button id="index-page-find-jobs" class="btn my-2 my-lg-0 findJobs" type="submit">Find jobs</button>
+				</div>
+			</div>
+		</div>
+		<div class="mobileSearchWrapper">
+			<div class="col-7">
+				<div class="searchBox input-group">
+					<input type="text" class="search form-control" id="search-keyword" name="keyword" placeholder="Search by keywords" aria-label="Search by key words">
+					<label id="forSearch" for="search-keyword">Key words</label>
+				</div>
+			</div>
+			<div class="col-5"><div><button id="index-page-find-jobs" class="btn my-2 my-lg-0 findJobs" type="submit">Find jobs</button></div></div>
+		</div>
+	</form>
+</div>
+<div class="wrapperSection"><h2>Be part of the future</h2><p>A career at Yahoo is an opportunity to shape the future of the internet.</p></div>
+<div class="mainFooter"><div class="footerContent"><ul><li><a href="/accessibility">Accessibility</a></li><li><a href="/privacy">Privacy Policy</a></li><li><a href="/terms">Terms of Service</a></li></ul></div></div>
+</body></html>

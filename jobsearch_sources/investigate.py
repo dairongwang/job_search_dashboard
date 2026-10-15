@@ -11,7 +11,9 @@
    job-looking links, JavaScript rendering.
 5. **search form** — the inputs, dropdowns and buttons on the page
    (placeholder / label / option texts), so a form-driving recipe for the
-   web-page provider can be written without guessing selectors.
+   web-page provider can be written without guessing selectors — and, when
+   a **search-form strategy** is registered for the host (``searchforms``),
+   which version of it matches the live page.
 
 The result carries a ready-to-save ``SiteConfig`` suggestion. Run it from the
 configuration dashboard (*Investigate a careers URL*) or the CLI::
@@ -35,6 +37,8 @@ from . import browser, robots
 from .feeds import discover_feeds, explain_fetch_error
 from .htmlpages import _soup, candidate_links, extract_jsonld, looks_js_rendered
 from .http import FetchError, classify_body, fetch_bytes
+from .searchforms import registry as form_registry
+from .searchforms.service import form_site_options
 
 # Platform fingerprints: regex over the page HTML (links, iframes, scripts) -> provider + options.
 PLATFORMS: list[tuple[str, str, str]] = [
@@ -94,9 +98,12 @@ class Investigation:
     js_rendered: bool = False
     rendered: bool = False
     form_controls: list[FormControl] = field(default_factory=list)
+    form_strategies: list[str] = field(default_factory=list)  # registered search-form strategy keys for this host
+    form_strategy_matched: str = ""  # the one whose fingerprint matches the live page ("" = none)
     verdict: str = ""  # crawlable | forbidden | unreachable | unknown
     summary: str = ""
     suggested_site: dict[str, Any] | None = None
+    suggested_form_site: dict[str, Any] | None = None  # web-page site driving the matched search-form strategy
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -183,9 +190,39 @@ def form_controls(soup: Any) -> list[FormControl]:
     return controls[:60]
 
 
+def _form_suggestion(report: Investigation, host_id: str, name: str) -> str:
+    """Fill ``suggested_form_site`` when a registered search-form strategy matches the page; returns a summary sentence."""
+    if not report.form_strategy_matched:
+        if report.form_strategies:
+            return (
+                f"Search-form strategies {', '.join(report.form_strategies)} are registered for this host but none matches this page "
+                "(the form was redesigned or lives on another page)."
+            )
+        return ""
+    family, version = report.form_strategy_matched.split("@", 1)
+    strategy = form_registry.get(family, version)
+    if strategy is None:
+        return ""
+    report.suggested_form_site = asdict(
+        SiteConfig(
+            id=f"{host_id}-form",
+            provider="html",
+            name=f"{name} (search form)",
+            enabled=False,
+            options=form_site_options(strategy, report.url),
+            notes=f"Suggested by Investigate from {report.url}. Test the form (Find jobs) in the site's Search form panel before enabling.",
+        )
+    )
+    return (
+        f"Search form: version {version} ({strategy.since or 'undated'}) of the '{strategy.label}' strategy matches this page — "
+        "a web-page site can fill in this form on every search (added disabled until its Find jobs test returns jobs)."
+    )
+
+
 def _suggest(report: Investigation, settings: SearchSettings) -> None:
     host_id = _site_id(report.host)
     name = report.host.replace("www.", "")
+    form_summary = _form_suggestion(report, host_id, name)
     if report.platform in ("workday", "greenhouse", "lever", "ashby", "smartrecruiters", "recruitee", "workable"):
         options = default_options(report.platform)
         options.update(report.platform_options)
@@ -202,7 +239,7 @@ def _suggest(report: Investigation, settings: SearchSettings) -> None:
         report.summary = (
             f"{report.platform_label} powers this careers site; its public job API returns structured listings. "
             f"Suggested: a '{report.platform_label}' site with {', '.join(f'{k}={v}' for k, v in report.platform_options.items() if k != 'url')}."
-        )
+        ) + (f" {form_summary}" if form_summary else "")
         return
     if report.feeds:
         options = default_options("rss")
@@ -227,6 +264,8 @@ def _suggest(report: Investigation, settings: SearchSettings) -> None:
         options["url"] = report.url
         options["render"] = "always" if report.js_rendered else "auto"
         report.suggested_site = asdict(SiteConfig(id=f"{host_id}-page", provider="html", name=f"{name} (page)", enabled=True, options=options))
+        if report.suggested_form_site:
+            report.suggested_site = dict(report.suggested_form_site)
         parts = []
         if report.jsonld_postings:
             parts.append(f"{report.jsonld_postings} JobPosting object(s) on the page")
@@ -237,6 +276,8 @@ def _suggest(report: Investigation, settings: SearchSettings) -> None:
         if report.form_controls:
             parts.append(f"{len(report.form_controls)} form control(s) found for a search recipe")
         report.summary = ("Web page: " + "; ".join(parts) + ".") if parts else "Web page with no detectable listings; configure CSS selectors or a search recipe."
+        if form_summary:
+            report.summary += " " + form_summary
         if report.platform_label and report.platform not in ("workday", "greenhouse", "lever", "ashby", "smartrecruiters", "recruitee", "workable"):
             report.summary = report.platform_label + " " + report.summary
 
@@ -245,11 +286,30 @@ def investigate(url: str, settings: SearchSettings | None = None, render: bool =
     settings = settings or SearchSettings()
     report = Investigation(url=url, host=urlsplit(url).netloc.lower())
     registry = load_registry() if record else None
-    if registry is not None:
-        row = registry.lookup(url)
+    if registry is None:
+        try:
+            registry_view = load_registry()
+        except (OSError, ValueError):
+            registry_view = None
+    else:
+        registry_view = registry
+    if registry_view is not None:
+        row = registry_view.lookup(url)
         if row is not None:
             report.registry_status = "forbidden" if not row.active else row.status
             report.registry_message = row.message
+            if row.policy_block:
+                # the site's terms prohibit automated access: a policy decision, not something a fetch can overturn
+                report.verdict = "forbidden"
+                report.denied = True
+                report.error = row.message
+                report.summary = (
+                    f"{row.host} prohibits automated access by its terms of use — {row.message} This app does not crawl such sites; "
+                    "the host cannot be added. (An administrator can lift the block in the Site registry if the terms change.)"
+                )
+                if registry is not None:
+                    registry.record(url, "forbidden", row.message, source="probe", reason="terms")
+                return report
 
     verdict = robots.check(url, settings)
     report.robots_allowed, report.robots_reason, report.crawl_delay = verdict.allowed, verdict.reason, verdict.crawl_delay
@@ -257,7 +317,7 @@ def investigate(url: str, settings: SearchSettings | None = None, render: bool =
         report.verdict = "unreachable" if verdict.unreachable else "forbidden"
         report.summary = verdict.reason
         if registry is not None:
-            registry.record(url, "error" if verdict.unreachable else "forbidden", verdict.reason, source="probe")
+            registry.record(url, "error" if verdict.unreachable else "forbidden", verdict.reason, source="probe", reason="robots")
         return report
 
     try:
@@ -271,7 +331,7 @@ def investigate(url: str, settings: SearchSettings | None = None, render: bool =
         report.verdict = "forbidden" if report.denied else "unreachable"
         report.summary = report.error
         if registry is not None:
-            registry.record(url, "forbidden" if report.denied else "error", report.error, source="probe", status_code=exc.status)
+            registry.record(url, "forbidden" if report.denied else "error", report.error, source="probe", status_code=exc.status, reason="http")
         return report
 
     report.content_kind = classify_body(raw)
@@ -288,7 +348,7 @@ def investigate(url: str, settings: SearchSettings | None = None, render: bool =
                 report.verdict = "forbidden"
                 report.summary = report.error
                 if registry is not None:
-                    registry.record(url, "forbidden", report.error, source="probe", status_code=pages[0].status)
+                    registry.record(url, "forbidden", report.error, source="probe", status_code=pages[0].status, reason="http")
                 return report
             if pages and pages[0].html:
                 html = pages[0].html
@@ -301,6 +361,11 @@ def investigate(url: str, settings: SearchSettings | None = None, render: bool =
         report.feeds = discover_feeds(html, url)
         report.job_links = len(listed or candidate_links(soup, url))
         report.form_controls = form_controls(soup)
+        known = form_registry.for_url(url)
+        report.form_strategies = [s.key for s in known]
+        if known:
+            resolution = form_registry.resolve(soup, known)
+            report.form_strategy_matched = resolution.strategy.key if resolution.strategy else ""
     report.verdict = "crawlable"
     _suggest(report, settings)
     if registry is not None:
@@ -320,6 +385,8 @@ def format_report(report: Investigation) -> str:
         lines.append(f"Platform: {report.platform_label} {json.dumps(report.platform_options) if report.platform_options else ''}".rstrip())
     if report.content_kind:
         lines.append(f"Content: {report.content_kind}; JobPosting objects: {report.jsonld_postings}; job links: {report.job_links}; feeds: {', '.join(report.feeds) or 'none'}; JavaScript-rendered: {'yes' if report.js_rendered else 'no'}{' (rendered in browser)' if report.rendered else ''}")
+    if report.form_strategies:
+        lines.append(f"Search-form strategies: {', '.join(report.form_strategies)} — live page matches: {report.form_strategy_matched or 'none'}")
     if report.form_controls:
         lines.append("Search form controls:")
         for control in report.form_controls:
@@ -330,4 +397,7 @@ def format_report(report: Investigation) -> str:
     if report.suggested_site:
         lines.append("Suggested site config:")
         lines.append(json.dumps(report.suggested_site, indent=2))
+    if report.suggested_form_site and report.suggested_form_site != report.suggested_site:
+        lines.append("Suggested search-form site config:")
+        lines.append(json.dumps(report.suggested_form_site, indent=2))
     return "\n".join(lines)

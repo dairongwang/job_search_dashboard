@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Careers | Yahoo (test fixture)</title>
+<style>
+  /* Bootstrap-like rules that make the filter form hard to drive naively */
+  .collapse:not(.show) { display: none; }
+  .dropdown-menu { display: none; position: absolute; }
+  .dropdown.show .dropdown-menu { display: block; }
+  .custom-control-input { position: absolute; z-index: -1; opacity: 0; }
+  @media (min-width: 992px) { .mobileTabletOnly { display: none; } }
+  .loadMoreBtn[hidden] { display: none; }
+</style>
+<script>
+const JOBS = [
+  {id: 101, title: "Senior Data Analyst", cat: "Engineering", country: "United States of America", cc: "United States", brand: "Yahoo Finance", exp: "Individual Contributor"},
+  {id: 102, title: "Data Analyst, Ads", cat: "Engineering", country: "United States of America", cc: "United States", brand: "Yahoo", exp: "Individual Contributor"},
+  {id: 103, title: "Principal Engineer, DevEx", cat: "Software Development", country: "United States of America", cc: "United States", brand: "Yahoo Engineering", exp: "Individual Contributor"},
+  {id: 104, title: "Analyst, Campaign Operations", cat: "Engineering", country: "India", cc: "India", brand: "Yahoo", exp: "Early Career"},
+  {id: 105, title: "Marketing Analyst", cat: "Marketing", country: "United States of America", cc: "United States", brand: "Yahoo", exp: "Individual Contributor"},
+  {id: 106, title: "Director, CTO FP&A", cat: "Finance", country: "United States of America", cc: "United States", brand: "Yahoo", exp: "Management"},
+  {id: 107, title: "Data Analyst (Dublin)", cat: "Engineering", country: "Ireland", cc: "Ireland", brand: "Yahoo Mail", exp: "Individual Contributor"},
+  {id: 108, title: "Sr Research Scientist", cat: "Research", country: "United States of America", cc: "United States", brand: "Yahoo Search", exp: "Individual Contributor"},
+  {id: 109, title: "Staff Data Analyst", cat: "Engineering", country: "United States of America", cc: "United States", brand: "Yahoo Finance", exp: "Sr Management"},
+];
+const PAGE = 3;
+let matches = JOBS.slice();
+let shown = 0;
+function checked(id) { return Array.from(document.querySelectorAll('#' + id + ' input[type=checkbox]:checked')).map(i => i.value); }
+function row(j) {
+  return '<tr class="jobTitle"><td class="col-6" data-title="Title"><div class="innerJobTitle"><a href="/job/' + j.id + '.html" target="_blank">' + j.title + '</a><span class="brandType"></span></div></td>' +
+         '<td class="col-3 tableBrand" data-title="Brand">' + j.brand + '</td><td class="col-3 tableLocation" data-title="Location"><div class="tableLocPrimary">' + j.country + '</div></td></tr>';
+}
+function render(reset) {
+  const body = document.getElementById('tableJobListing');
+  if (reset) { body.innerHTML = ''; shown = 0; }
+  if (!matches.length) {  // exactly what yahooinc.com renders for an empty search
+    body.innerHTML = '<div id="messageBox" class="errorMsg">We currently do not have any jobs matching your criteria. Please modify the search and try again.</div>';
+    document.querySelector('.resultsTotal').textContent = "Please 'Clear' the search and try again";
+    document.querySelector('.loadMoreBtn').hidden = true;
+    return;
+  }
+  const next = matches.slice(shown, shown + PAGE);
+  body.insertAdjacentHTML('beforeend', next.map(row).join(''));
+  shown += next.length;
+  document.querySelector('.resultsTotal').textContent = 'Showing ' + shown + ' results of ' + matches.length;
+  document.querySelector('.loadMoreBtn').hidden = shown >= matches.length;
+  document.getElementById('counter').textContent = String(shown);
+}
+function applyFilters(q, cats, locs, brands, exps) {
+  matches = JOBS.filter(j => (!q || j.title.toLowerCase().includes(q)) && (!cats.length || cats.includes(j.cat)) &&
+                              (!locs.length || locs.includes(j.cc)) && (!brands.length || brands.includes(j.brand)) && (!exps.length || exps.includes(j.exp)));
+  document.querySelector('.loadingAction').style.display = 'block';
+  setTimeout(() => { document.querySelector('.loadingAction').style.display = 'none'; render(true); }, 300);
+}
+function findJobs(ev) {
+  ev.preventDefault();
+  window.__submitted = (window.__submitted || 0) + 1;
+  const form = ev.target;
+  const q = form.querySelector('input[name=keyword]').value.trim().toLowerCase();
+  applyFilters(q, checked('JCDropdown'), checked('JLDropdown'), checked('JBDropdown'), checked('JEDropdown'));
+}
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('collapseFilterJobs').addEventListener('submit', findJobs);
+  document.querySelectorAll('button.dropdown-toggle').forEach(b => b.addEventListener('click', () => b.parentElement.classList.toggle('show')));
+  document.querySelector('a.stickyAccordion').addEventListener('click', () => document.getElementById('collapseFilterJobs').classList.toggle('show'));
+  document.querySelector('button.loadMore').addEventListener('click', () => render(false));
+  const params = new URLSearchParams(window.location.search);  // submitted from the landing page's form
+  if ([...params.keys()].length) {
+    const q = (params.get('keyword') || '').trim().toLowerCase();
+    document.querySelector('#collapseFilterJobs input[name=keyword]').value = params.get('keyword') || '';
+    applyFilters(q, params.getAll('categories[]'), params.getAll('locations[]'), params.getAll('brands[]'), []);
+  } else {
+    render(true);
+  }
+});
+</script>
+</head>
+<body>
+<script type="text/javascript">var postvars = ["","","","","",""];</script>
+<div id="mainSearchFilter" class="container-fluid jobSearch mobileTabletOnly sticky">
+    <div class="row stickyTitle">
+        <div class="col-12 showOnSticky">
+            <h2 class="text-left">
+               <a data-toggle="collapse" data-target="#collapseFilterJobs" aria-expanded="false" aria-controls="collapseFilterJobs" class="collapsed stickyAccordion" style="cursor: pointer;">Filter jobs <i class="filterArrow"></i></a>
+            </h2>
+        </div>
+    </div>
+    <form class="row align-items-center collapse" id="collapseFilterJobs" data-parent="#mainSearchFilter" method="POST">
+       <div class="col-4">
+          <div class="searchBox input-group">
+              <input type="text" class="search form-control" id="search-page-mobile-keyword" name="keyword" placeholder="Search by keywords" aria-label="Search by keywords">
+              <div class="input-group-append">
+                 <button class="searchIcon input-group-text"><img src="/search.svg" alt="search"></button>
+              </div>
+          </div>
+       </div>
+       <div class="col-2">
+          <div id="selectJobCat" class="dropdown">
+             <button class="btn dropdown-toggle jobSearchDropdown jobCategories" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  Select job categories
+             </button>
+             <div id="JCDropdown" class="dropdown-menu">
+                <div class="dropdownMenuClear">
+                    <div class="dropdownMenuOnly">
+                       <div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryadministration" name="administration" value="Administration"><label class="custom-control-label" for="jobCategoryadministration">Administration</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorybusinessdevelopment" name="businessdevelopment" value="Business Development"><label class="custom-control-label" for="jobCategorybusinessdevelopment">Business Development</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorybusinessoperations" name="businessoperations" value="Business Operations"><label class="custom-control-label" for="jobCategorybusinessoperations">Business Operations</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorycontent" name="content" value="Content"><label class="custom-control-label" for="jobCategorycontent">Content</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorycustomerexperience" name="customerexperience" value="Customer Experience"><label class="custom-control-label" for="jobCategorycustomerexperience">Customer Experience</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorydesign" name="design" value="Design"><label class="custom-control-label" for="jobCategorydesign">Design</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryecommerceoperations" name="ecommerceoperations" value="eCommerce Operations"><label class="custom-control-label" for="jobCategoryecommerceoperations">eCommerce Operations</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryengineering" name="engineering" value="Engineering"><label class="custom-control-label" for="jobCategoryengineering">Engineering</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryfinance" name="finance" value="Finance"><label class="custom-control-label" for="jobCategoryfinance">Finance</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryhumanresources" name="humanresources" value="Human Resources"><label class="custom-control-label" for="jobCategoryhumanresources">Human Resources</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryinformationsystems" name="informationsystems" value="Information Systems"><label class="custom-control-label" for="jobCategoryinformationsystems">Information Systems</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryinternship" name="internship" value="Internship"><label class="custom-control-label" for="jobCategoryinternship">Internship</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorylegal" name="legal" value="Legal"><label class="custom-control-label" for="jobCategorylegal">Legal</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorymarketing" name="marketing" value="Marketing"><label class="custom-control-label" for="jobCategorymarketing">Marketing</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryoperations" name="operations" value="Operations"><label class="custom-control-label" for="jobCategoryoperations">Operations</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategoryresearch" name="research" value="Research"><label class="custom-control-label" for="jobCategoryresearch">Research</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorysales" name="sales" value="Sales"><label class="custom-control-label" for="jobCategorysales">Sales</label></div><div class="custom-control custom-checkbox JCCheckbox"><input type="checkbox" class="custom-control-input" id="jobCategorysoftwaredevelopment" name="softwaredevelopment" value="Software Development"><label class="custom-control-label" for="jobCategorysoftwaredevelopment">Software Development</label></div>
+                    </div>
+                    <button class="clearMenu" type="button"><h5>Clear</h5></button>
+               </div>
+             </div>
+          </div>
+       </div>
+       <div class="col-2">
+          <div class="dropdown">
+             <button class="btn dropdown-toggle jobSearchDropdown jobLocations" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  Select countries
+             </button>
+             <div id="JLDropdown" class="dropdown-menu">
+                <div class="dropdownMenuClear">
+                    <div class="dropdownMenuOnly">
+                       <div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationaustralia" name="australia" value="Australia"><label class="custom-control-label" for="jobLocationaustralia">Australia</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationbrazil" name="brazil" value="Brazil"><label class="custom-control-label" for="jobLocationbrazil">Brazil</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationcanada" name="canada" value="Canada"><label class="custom-control-label" for="jobLocationcanada">Canada</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationdenmark" name="denmark" value="Denmark"><label class="custom-control-label" for="jobLocationdenmark">Denmark</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationfrance" name="france" value="France"><label class="custom-control-label" for="jobLocationfrance">France</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationgermany" name="germany" value="Germany"><label class="custom-control-label" for="jobLocationgermany">Germany</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationhongkong" name="hongkong" value="Hong Kong"><label class="custom-control-label" for="jobLocationhongkong">Hong Kong</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationindia" name="india" value="India"><label class="custom-control-label" for="jobLocationindia">India</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationireland" name="ireland" value="Ireland"><label class="custom-control-label" for="jobLocationireland">Ireland</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationisrael" name="israel" value="Israel"><label class="custom-control-label" for="jobLocationisrael">Israel</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationitaly" name="italy" value="Italy"><label class="custom-control-label" for="jobLocationitaly">Italy</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationjapan" name="japan" value="Japan"><label class="custom-control-label" for="jobLocationjapan">Japan</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationnewzealand" name="newzealand" value="New Zealand"><label class="custom-control-label" for="jobLocationnewzealand">New Zealand</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationnorway" name="norway" value="Norway"><label class="custom-control-label" for="jobLocationnorway">Norway</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationsingapore" name="singapore" value="Singapore"><label class="custom-control-label" for="jobLocationsingapore">Singapore</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationspain" name="spain" value="Spain"><label class="custom-control-label" for="jobLocationspain">Spain</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationsweden" name="sweden" value="Sweden"><label class="custom-control-label" for="jobLocationsweden">Sweden</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationtaiwan" name="taiwan" value="Taiwan"><label class="custom-control-label" for="jobLocationtaiwan">Taiwan</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationunitedkingdom" name="unitedkingdom" value="United Kingdom"><label class="custom-control-label" for="jobLocationunitedkingdom">United Kingdom</label></div><div class="custom-control custom-checkbox JLCheckbox"><input type="checkbox" class="custom-control-input" id="jobLocationunitedstates" name="unitedstates" value="United States"><label class="custom-control-label" for="jobLocationunitedstates">United States</label></div>
+                    </div>
+                    <button class="clearMenu" type="button"><h5>Clear</h5></button>
+               </div>
+             </div>
+          </div>
+       </div>
+       <div class="col-2">
+          <div class="dropdown">
+             <button class="btn dropdown-toggle jobSearchDropdown jobBrands" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  Select brands
+             </button>
+             <div id="JBDropdown" class="dropdown-menu">
+                <div class="dropdownMenuClear">
+                    <div class="dropdownMenuOnly">
+                       <div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandboundless" name="boundless" value="Boundless"><label class="custom-control-label" for="jobBrandboundless">Boundless</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoo" name="yahoo" value="Yahoo"><label class="custom-control-label" for="jobBrandyahoo">Yahoo</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahooengineering" name="yahooengineering" value="Yahoo Engineering"><label class="custom-control-label" for="jobBrandyahooengineering">Yahoo Engineering</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoofinance" name="yahoofinance" value="Yahoo Finance"><label class="custom-control-label" for="jobBrandyahoofinance">Yahoo Finance</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoomail" name="yahoomail" value="Yahoo Mail"><label class="custom-control-label" for="jobBrandyahoomail">Yahoo Mail</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoonews" name="yahoonews" value="Yahoo News"><label class="custom-control-label" for="jobBrandyahoonews">Yahoo News</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoosearch" name="yahoosearch" value="Yahoo Search"><label class="custom-control-label" for="jobBrandyahoosearch">Yahoo Search</label></div><div class="custom-control custom-checkbox JBCheckbox"><input type="checkbox" class="custom-control-input" id="jobBrandyahoosports" name="yahoosports" value="Yahoo Sports"><label class="custom-control-label" for="jobBrandyahoosports">Yahoo Sports</label></div>
+                    </div>
+                    <button class="clearMenu" type="button"><h5>Clear</h5></button>
+               </div>
+             </div>
+          </div>
+       </div>
+       <div class="col-2">
+          <div class="dropdown">
+             <button class="btn dropdown-toggle jobSearchDropdown jobExperience" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  Select experience
+             </button>
+             <div id="JEDropdown" class="dropdown-menu">
+                <div class="dropdownMenuClear">
+                    <div class="dropdownMenuOnly">
+                       <div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperiencedevelopmentalprograms" name="developmentalprograms" value="Developmental Programs"><label class="custom-control-label" for="jobExperiencedevelopmentalprograms">Developmental Programs</label></div><div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperienceearlycareer" name="earlycareer" value="Early Career"><label class="custom-control-label" for="jobExperienceearlycareer">Early Career</label></div><div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperienceindividualcontributor" name="individualcontributor" value="Individual Contributor"><label class="custom-control-label" for="jobExperienceindividualcontributor">Individual Contributor</label></div><div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperiencemanagement" name="management" value="Management"><label class="custom-control-label" for="jobExperiencemanagement">Management</label></div><div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperiencesrmanagement" name="srmanagement" value="Sr Management"><label class="custom-control-label" for="jobExperiencesrmanagement">Sr Management</label></div><div class="custom-control custom-checkbox JECheckbox"><input type="checkbox" class="custom-control-input" id="jobExperienceexecutiveleadership" name="executiveleadership" value="Executive Leadership"><label class="custom-control-label" for="jobExperienceexecutiveleadership">Executive Leadership</label></div>
+                    </div>
+                    <button class="clearMenu" type="button"><h5>Clear</h5></button>
+               </div>
+             </div>
+          </div>
+       </div>
+       <div class="col-3">
+          <div>
+             <button id="search-page-find-jobs-mobile" class="btn my-2 my-lg-0 findJobs" type="submit">Find jobs</button>
+          </div>
+       </div>
+       <div class="col-3">
+          <div>
+             <button class="btn my-2 my-lg-0 clearBtn" type="reset">Clear</button>
+          </div>
+       </div>
+   </form>
+</div>
+<ul class="navUl"><li><a href="/careers">CAREERS</a></li><li><a href="/careers/">Search Jobs</a></li><li><a href="/our-story">OUR TEAM</a></li></ul>
+<div id="wrap">
+	<div id="resultHeader" class="container-fluid jobSearchResults">
+        	<div><h1 class="resultsTitle">Join our team</h1></div>
+        	<div><p class="resultsTotal">Showing 0 results of 0</p></div>
+    	</div>
+   	<div class="container-fluid searchFilterAndResults">
+			<div class="row">
+        		<div id="desktopSearchFilter" class="col-md-4"><p>(desktop filter form omitted in this fixture)</p></div>
+				<div class="col-12 col-md-8">
+                <div class="table-responsive">
+                    <div id="searchResults"></div>
+                    <table class="table table-borderless table-product search-cat-m">
+                        <thead><tr class="d-flex resultTitles"><th class="col-6">Title</th><th class="col-3 tableBrand">Brand</th><th class="col-3 tableLocation">Location</th></tr></thead>
+                        <tbody id="tableJobListing"></tbody>
+                    </table>
+                </div>
+                <div class="loadMoreBtn"><button class="btn my-3 loadMore" type="button">Load more</button></div>
+                <div class="loadingAction" style="display: none;"><span class="my-3 loading">Loading</span></div>
+                <div id="counter">0</div>
+            </div>
+		</div>
+	</div>
+</div>
+</body></html>

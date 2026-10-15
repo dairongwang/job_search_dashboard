@@ -11,6 +11,13 @@ Three extraction strategies, tried in this order on every fetched page:
    links are followed (politely, with a delay and a cap) and each detail page
    is parsed with strategy 1, falling back to Open Graph / ``<h1>`` metadata.
 
+4. **Search-form strategies** (``searchforms`` package): when the site has a
+   search form (keyword box, category / country / brand dropdowns, a *Find
+   jobs* button), the configured per-site strategy fills it in a headless
+   browser exactly as a person would, submits it and reads the result list
+   with site-specific parsing. Strategies are versioned so a redesign of the
+   form is detected (``FormChanged``) instead of silently returning nothing.
+
 Every request is checked against the site's robots.txt first and sent with
 an identifying User-Agent. When a page renders its listings with JavaScript
 and Playwright/Chromium is installed, the page is loaded in a real headless
@@ -31,6 +38,9 @@ from . import browser, robots
 from .feeds import AccessDenied, NoListings, explain_fetch_error, known_site_guidance
 from .http import FetchError, classify_body
 from .model import Job, normalise_job_type, normalise_workplace, parse_date
+from .searchforms import registry as form_registry
+from .searchforms.recipe import expand_steps
+from .searchforms.runner import ensure_matched, run_form
 
 try:  # BeautifulSoup is only needed for this provider
     from bs4 import BeautifulSoup
@@ -262,14 +272,20 @@ def extract_with_selectors(soup: Any, options: dict[str, Any], base_url: str) ->
 
 def candidate_links(soup: Any, base_url: str, pattern: str = "") -> list[str]:
     regex = re.compile(pattern or DEFAULT_LINK_PATTERN, re.IGNORECASE)
-    host = urlsplit(base_url).netloc
+    base = urlsplit(base_url)
+    host = base.netloc
+    base_path = base.path.rstrip("/")
+    ancestors = {base_path[: i] for i, ch in enumerate(base_path) if ch == "/"} | {base_path}
     found: list[str] = []
     for anchor in soup.find_all("a", href=True):
         href = urljoin(base_url, anchor["href"]).split("#", 1)[0]
-        if urlsplit(href).netloc != host:
+        parts = urlsplit(href)
+        if parts.netloc != host:
             continue
         if href.rstrip("/") == base_url.rstrip("/"):
             continue
+        if not parts.query and parts.path.rstrip("/") in ancestors:
+            continue  # navigation to the page itself or a parent section (e.g. /careers from /careers/search.html)
         if not regex.search(href) or _SKIP_LINK.search(href):
             continue
         found.append(href)
@@ -380,6 +396,29 @@ class _Fetcher:
         self.rendered_pages += 1
         return page.pages
 
+    def rendered_with_plan(self, url: str, plan: dict[str, Any]) -> browser.Rendered | None:
+        """Load ``url`` in a browser and run the search-form plan (strategy candidates); None when rendering failed."""
+        verdict = self.allowed(url)
+        if not verdict.allowed:
+            raise AccessDenied(verdict.reason, transient=verdict.unreachable)
+        self.last_render_error = ""
+        pages = browser.render_pages([url], self.ctx.settings, delay_seconds=max(self.delay, verdict.crawl_delay or 0), plans={url: plan})
+        if not pages:
+            self.last_render_error = "browser returned nothing"
+            return None
+        page = pages[0]
+        if page.denied:
+            raise AccessDenied(
+                f"the site refused automated access (HTTP {page.status}) even to a real browser session; this app does not "
+                "disguise itself or solve bot-protection challenges.",
+                page.status,
+            )
+        if page.error or not (page.html or page.initial_html):
+            self.last_render_error = page.error or f"HTTP {page.status} with an empty page"
+            return None
+        self.rendered_pages += 1
+        return page
+
     def rendered(self, urls: list[str]) -> dict[str, str]:
         """Render allowed URLs in a browser; returns url -> html (missing on failure). Raises AccessDenied on 401/403."""
         allowed: list[str] = []
@@ -452,42 +491,182 @@ def _jobs_from_detail(ctx: Any, html: str, link: str, default_workplace: str) ->
     ]
 
 
-_PLACEHOLDER = re.compile(r"\{([a-zA-Z_][\w-]*)\}")
+def enrich_from_detail(job: Job, html: str, link: str, default_workplace: str = "") -> Job:
+    """Complete a listing-row job with data from its detail page (JobPosting data or page metadata)."""
+    soup = _soup(html)
+    postings, _ = extract_jsonld(soup)
+    detail = next((j for j in (jobposting_to_job(p, link, job.source, job.site_id, default_workplace) for p in postings) if j), None)
+    if detail is not None:
+        job.description = job.description or detail.description
+        job.location = job.location or detail.location
+        job.organization = job.organization or detail.organization
+        if detail.workplace and detail.workplace != default_workplace:
+            job.workplace = detail.workplace  # the job page said remote/hybrid/on-site explicitly
+        job.workplace = job.workplace or detail.workplace
+        if job.salary_min is None and job.salary_max is None:
+            job.salary_min, job.salary_max = detail.salary_min, detail.salary_max
+            job.salary_currency, job.salary_period, job.salary_text = detail.salary_currency, detail.salary_period, detail.salary_text
+        job.job_type = job.job_type or detail.job_type
+        job.schedule = job.schedule or detail.schedule
+        job.industry = job.industry or detail.industry
+        job.tags = job.tags or detail.tags
+        job.published = job.published or detail.published
+        return job
+    fallback = extract_detail_fallback(soup, link)
+    job.description = job.description or fallback["description"]
+    job.organization = job.organization or fallback["organization"]
+    if not job.workplace:
+        job.workplace = normalise_workplace(job.title + " " + job.description[:200], default_workplace)
+    return job
 
 
-def expand_steps(steps: list[dict[str, Any]], values: dict[str, Any]) -> list[dict[str, Any]]:
-    """Substitute ``{name}`` placeholders in a step list from ``values``.
-
-    A placeholder whose value is a list expands the step into one step per
-    item (e.g. ticking several brands). Unknown placeholders are left as is.
-    """
-
-    def fill(node: Any, table: dict[str, Any]) -> Any:
-        if isinstance(node, str):
-            return _PLACEHOLDER.sub(lambda m: str(table.get(m.group(1), m.group(0))), node)
-        if isinstance(node, dict):
-            return {k: fill(v, table) for k, v in node.items()}
-        if isinstance(node, list):
-            return [fill(v, table) for v in node]
-        return node
-
-    out: list[dict[str, Any]] = []
-    for step in steps:
-        text = json.dumps(step)
-        list_names = [name for name in _PLACEHOLDER.findall(text) if isinstance(values.get(name), list)]
-        if list_names:
-            name = list_names[0]
-            for item in values[name]:
-                out.append(fill(step, {**values, name: item}))
-        else:
-            out.append(fill(step, values))
-    return out
+__all__ = ["html_page", "expand_steps", "extract_jsonld", "extract_with_selectors", "candidate_links", "looks_js_rendered", "enrich_from_detail"]
 
 
 def looks_js_rendered(soup: Any) -> bool:
     text_len = len(soup.get_text(" ", strip=True))
     script_len = sum(len(s.get_text() or "") for s in soup.find_all("script"))
     return (script_len > text_len * 2 and text_len < 3000) or text_len < 200
+
+
+def _dedupe(jobs: list[Job], limit: int) -> list[Job]:
+    seen: set[str] = set()
+    unique: list[Job] = []
+    for job in jobs:
+        key = job.url or job.external_id
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(job)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _generic_rows(ctx: Any, soup: Any, url: str, options: dict[str, Any], default_workplace: str) -> tuple[list[Job], list[str]]:
+    """Generic extraction of one page: JobPosting data + CSS selectors; returns (jobs, listed links)."""
+    found: list[Job] = []
+    postings, listed_links = extract_jsonld(soup)
+    for posting in postings:
+        job = jobposting_to_job(posting, url, ctx.site.name, ctx.site.id, default_workplace)
+        if job:
+            found.append(job)
+    for row in extract_with_selectors(soup, options, url):
+        found.append(_job_from_row(ctx, row, url, default_workplace))
+    return found, listed_links
+
+
+def form_keywords(ctx: Any, spec: dict[str, Any], criteria: dict[str, Any]) -> list[str]:
+    """What goes into the form's keyword box on this run — one entry per form submission.
+
+    * an explicit request for this run (Research-page keyword override, a form test) always wins;
+    * otherwise ``search_form.keyword_mode``: ``criteria`` (default) submits exactly the keyword saved
+      with the site's criteria (possibly none — the site's own filters do the work); ``titles`` replaces
+      it with the preferred titles, one submission each.
+    """
+    saved = str(criteria.get("keyword") or "")
+    if ctx.keywords_explicit:
+        return [k for k in ctx.keywords if k] or [""]
+    mode = str((spec or {}).get("keyword_mode") or "criteria").strip().lower()
+    titles = [k for k in ctx.keywords if k]
+    if mode == "titles" and titles:
+        return titles
+    return [saved]
+
+
+def _form_driven(ctx: Any, fetcher: "_Fetcher", candidates: list[Any], template: str, options: dict[str, Any]) -> list[Job]:
+    """Search by driving the site's own search form with the configured strategy (see ``searchforms``)."""
+    default_workplace = str(options.get("workplace") or "")
+    pages = max(1, int(options.get("pages") or 1))
+    follow = str(options.get("follow_links") or "auto")
+    max_detail = max(0, int(options.get("max_detail_pages") or 15))
+    link_pattern = str(options.get("link_pattern") or "")
+    configured = candidates[0]
+    if fetcher.render_mode == "never":
+        raise ValueError(f"the search form of this site ({configured.label}) is driven in a browser; set 'Render with browser' to auto or always.")
+    if not fetcher.browser_available():
+        raise ValueError(f"driving the site's search form needs a browser: {fetcher.browser_reason}")
+    fetcher.use_browser = True
+    spec = options.get("search_form") if isinstance(options.get("search_form"), dict) else {}
+    criteria = dict(spec.get("criteria") or {}) if spec else dict(options.get("form_values") or {})
+    url = ctx.fill(template, "").replace("{page}", "1")
+    keywords = form_keywords(ctx, spec, criteria)
+    learn = bool(spec.get("learn", True)) if spec else True
+    info: dict[str, Any] = {"configured": configured.key, "label": configured.label, "runs": [], "matched": "", "changed": False, "learned": None}
+    ctx.extra["search_form"] = info
+    jobs: list[Job] = []
+    detail_budget = max_detail
+    run_criteria = dict(criteria)
+    for keyword in keywords:
+        run = run_form(fetcher, url, candidates, {**run_criteria, "keyword": keyword}, pages=pages, learn=learn, site_id=ctx.site.id)
+        info["runs"].append(run.summary())
+        info["matched"], info["changed"], info["live_options"] = run.matched, run.changed, run.live_options
+        if run.learned and not info["learned"]:
+            info["learned"] = run.learned
+            learned = form_registry.RecipeStrategy(run.learned, ctx.site.id)
+            run_criteria = dict(run.criteria)  # already mapped onto the learned fields
+            candidates = [learned] + [c for c in candidates if c.key != learned.key]  # next keywords: use it directly
+        if not run.matched:
+            if run.tried and fetcher.last_render_error:
+                ctx.notes.append(run.message)
+                break
+            ensure_matched(run)
+        if run.changed:
+            ctx.notes.append(run.message)
+        if run.step_error:
+            ctx.notes.append(f"search form: {run.step_error} (completed {run.steps_done} step(s))")
+        for problem in run.unknown_choices:
+            ctx.notes.append(f"search form: {problem}")
+        found: list[Job] = [_job_from_row(ctx, row, url, default_workplace) for row in run.rows]
+        links = [job.url for job in found if job.url and job.url != url]
+        if run.site_message:
+            ctx.notes.append(f"the site answered: {run.site_message}")
+        if not found and run.owns_results:
+            continue  # the strategy read the result list and it is empty: the site has no matching jobs — nothing to invent
+        if not found:  # the strategy has no site-specific result parser: read the snapshots generically
+            for html in run.snapshots:
+                soup = _soup(html)
+                generic, listed = _generic_rows(ctx, soup, url, options, default_workplace)
+                found.extend(generic)
+                links = list(dict.fromkeys(links + (listed or candidate_links(soup, url, link_pattern))))
+            if not found and links and follow != "never" and detail_budget > 0:
+                rendered = fetcher.rendered(links[:detail_budget])
+                detail_budget -= len(rendered)
+                for link, detail_html in rendered.items():
+                    found.extend(_jobs_from_detail(ctx, detail_html, link, default_workplace))
+        elif follow == "always" and detail_budget > 0 and links:
+            rendered = fetcher.rendered(links[:detail_budget])
+            detail_budget -= len(rendered)
+            for job in found:
+                if job.url in rendered:
+                    enrich_from_detail(job, rendered[job.url], job.url, default_workplace)
+        jobs.extend(found)
+    if fetcher.rendered_pages:
+        ctx.notes.append(f"rendered {fetcher.rendered_pages} page(s) in a browser")
+    if fetcher.skipped_by_robots:
+        ctx.notes.append(f"{fetcher.skipped_by_robots} job link(s) skipped because robots.txt disallows them")
+    if not jobs:
+        if fetcher.last_render_error and not info.get("matched"):
+            raise ValueError(f"the page could not be loaded in the browser: {fetcher.last_render_error}")
+        last = info["runs"][-1] if info["runs"] else {}
+        detail = f" The site reported {last['total']} matching job(s)." if last.get("total") else ""
+        if last.get("site_message"):
+            detail += f" The site says: \"{last['site_message']}\""
+        hint = f" Step problem: {last['step_error']}." if last.get("step_error") else ""
+        submitted = dict(run_criteria)
+        submitted["keyword"] = ", ".join(k for k in keywords if k)
+        used = form_registry.RecipeStrategy(info["learned"], ctx.site.id) if info.get("learned") else configured
+        source = (
+            "the keyword requested for this run" if ctx.keywords_explicit and any(keywords)
+            else "your preferred titles (search_form.keyword_mode = titles)" if str(spec.get("keyword_mode") or "").lower() == "titles" and any(keywords)
+            else "the keyword saved with the site's criteria" if any(keywords) else "no keyword"
+        )
+        raise NoListings(
+            f"the search form ({info['matched'] or configured.key}) was submitted with "
+            f"{used.describe_criteria(submitted)} ({source}), but no job listings came back.{detail}{hint} "
+            "Loosen the criteria and test the form again in the configuration dashboard."
+        )
+    return _dedupe(jobs, ctx.limit)
 
 
 def html_page(ctx: Any) -> list[Job]:
@@ -501,62 +680,25 @@ def html_page(ctx: Any) -> list[Job]:
     max_detail = max(0, int(options.get("max_detail_pages") or 15))
     link_pattern = str(options.get("link_pattern") or "")
     keywords = [k.lower() for k in ctx.keywords if k]
-    steps_template = [step for step in (options.get("actions") or []) if isinstance(step, dict)]
-    form_values = dict(options.get("form_values") or {})
-    keyword_in_url = "{keyword}" in template or any("{keyword}" in json.dumps(step) for step in steps_template)
     fetcher = _Fetcher(ctx)
-    if steps_template:
-        if fetcher.render_mode == "never":
-            raise ValueError("search-form steps ('actions') need browser rendering; set 'Render with browser' to auto or always.")
-        if not fetcher.browser_available():
-            raise ValueError(f"search-form steps ('actions') need a browser: {fetcher.browser_reason}")
-        fetcher.use_browser = True
+    candidates = form_registry.candidates(options, template, ctx.site.id)
+    if candidates:
+        return _form_driven(ctx, fetcher, candidates, template, options)
+    keyword_in_url = "{keyword}" in template
     jobs: list[Job] = []
     detail_budget = max_detail
     pages_fetched = 0
     js_suspected = False
 
     def extract_listing(soup: Any, url: str) -> tuple[int, list[str]]:
-        before = len(jobs)
-        postings, listed_links = extract_jsonld(soup)
-        for posting in postings:
-            job = jobposting_to_job(posting, url, ctx.site.name, ctx.site.id, default_workplace)
-            if job:
-                jobs.append(job)
-        for row in extract_with_selectors(soup, options, url):
-            jobs.append(_job_from_row(ctx, row, url, default_workplace))
-        return len(jobs) - before, listed_links
+        found, listed_links = _generic_rows(ctx, soup, url, options, default_workplace)
+        jobs.extend(found)
+        return len(found), listed_links
 
     for keyword in (ctx.keywords or [""]) if keyword_in_url else [""]:
         for page in range(1, pages + 1):
             url = ctx.fill(template, keyword).replace("{page}", str(page))
             html = ""
-            if steps_template:
-                steps = expand_steps(steps_template, {**form_values, "keyword": keyword, "location": ctx.location, "page": page})
-                snapshots = fetcher.rendered_with_steps(url, steps)
-                if not snapshots:
-                    js_suspected = True
-                    ctx.notes.append(f"browser rendering failed: {fetcher.last_render_error or 'no content'}")
-                    break
-                pages_fetched += 1
-                found_here = 0
-                links: list[str] = []
-                soup = None
-                for snapshot in snapshots:
-                    soup = _soup(snapshot)
-                    found, listed_links = extract_listing(soup, url)
-                    found_here += found
-                    links = list(dict.fromkeys(links + (listed_links or candidate_links(soup, url, link_pattern))))
-                if follow != "never" and (follow == "always" or found_here == 0) and detail_budget > 0 and links:
-                    batch = links[:detail_budget]
-                    rendered = fetcher.rendered(batch)
-                    detail_budget -= len(rendered)
-                    for link, detail_html in rendered.items():
-                        jobs.extend(_jobs_from_detail(ctx, detail_html, link, default_workplace))
-                if found_here == 0 and not links:
-                    js_suspected = soup is not None and looks_js_rendered(soup)
-                    break
-                continue
             if not fetcher.use_browser:
                 html = fetcher.static(url)
                 pages_fetched += 1
@@ -644,14 +786,4 @@ def html_page(ctx: Any) -> list[Job]:
             message += f" (Listings were also filtered locally by: {', '.join(keywords)}.)"
         raise NoListings(message + (f" {guidance}" if guidance else ""))
 
-    seen: set[str] = set()
-    unique: list[Job] = []
-    for job in jobs:
-        key = job.url or job.external_id
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(job)
-        if len(unique) >= ctx.limit:
-            break
-    return unique
+    return _dedupe(jobs, ctx.limit)

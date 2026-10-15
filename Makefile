@@ -2,18 +2,20 @@
 
 PY ?= python
 
-install:            ## main app dependencies
+install:            ## main app dependencies (+ headless Chromium)
 	$(PY) -m pip install -r requirements.txt
+	$(PY) -m jobsearch_sources setup-browser
 
-install-config:     ## configuration dashboard only
+install-config:     ## configuration dashboard only (+ headless Chromium for 'Find jobs' tests)
 	$(PY) -m pip install -r requirements-config.txt
+	$(PY) -m jobsearch_sources setup-browser
 
 dev:                ## everything incl. tests
 	$(PY) -m pip install -r requirements-dev.txt
+	$(PY) -m jobsearch_sources setup-browser
 
-browser:            ## optional headless Chromium for JavaScript-rendered job boards
-	$(PY) -m pip install -r requirements-browser.txt
-	$(PY) -m playwright install chromium
+browser:            ## (re)install the headless Chromium used for JavaScript boards and web-form sites
+	$(PY) -m jobsearch_sources setup-browser
 
 app:                ## run the main dashboard on :8501
 	streamlit run app.py --server.port 8501

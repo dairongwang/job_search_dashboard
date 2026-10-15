@@ -1,0 +1,39 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Careers | Yahoo (redesign fixture)</title>
+<script>
+const JOBS = [
+  {id: 101, title: "Senior Data Analyst", team: "Engineering", loc: "United States", brand: "Yahoo Finance"},
+  {id: 102, title: "Data Analyst, Ads", team: "Engineering", loc: "United States", brand: "Yahoo"},
+  {id: 105, title: "Marketing Analyst", team: "Marketing", loc: "United States", brand: "Yahoo"},
+  {id: 107, title: "Data Analyst (Dublin)", team: "Engineering", loc: "Ireland", brand: "Yahoo Mail"},
+  {id: 106, title: "Director, CTO FP&A", team: "Finance", loc: "United States", brand: "Yahoo"},
+];
+function search(ev) {
+  ev.preventDefault();
+  const q = document.querySelector('#jobSearchV3 input[name=q]').value.trim().toLowerCase();
+  const team = document.querySelector('#jobSearchV3 select[name=team]').value;
+  const locs = Array.from(document.querySelectorAll('#jobSearchV3 input[name="loc[]"]:checked')).map(i => i.value);
+  const hits = JOBS.filter(j => (!q || j.title.toLowerCase().includes(q)) && (!team || j.team === team) && (!locs.length || locs.includes(j.loc)));
+  const out = document.getElementById('roles');
+  if (!hits.length) { out.innerHTML = '<p class="noRoles">No roles match your search.</p>'; return; }
+  out.innerHTML = hits.map(j => '<li class="role"><a href="/job/' + j.id + '.html">' + j.title + '</a> <span class="brand">' + j.brand + '</span> <span class="where">' + j.loc + '</span></li>').join('');
+}
+window.addEventListener('DOMContentLoaded', () => document.getElementById('jobSearchV3').addEventListener('submit', search));
+</script></head><body>
+<header class="siteHeader"><nav><a href="/careers">Careers</a> <a href="/our-story">Our story</a> <a href="/our-brands">Brands</a> <a href="/press">Press</a></nav></header>
+<main>
+<form id="jobSearchV3" class="heroSearch">
+  <label for="q">What do you want to do?</label>
+  <input id="q" name="q" type="search" placeholder="What do you want to do?">
+  <label for="team">Team</label>
+  <select id="team" name="team"><option value="">Any team</option><option>Engineering</option><option>Marketing</option><option>Finance</option></select>
+  <fieldset><legend>Where</legend>
+    <label><input type="checkbox" name="loc[]" value="United States"> United States</label>
+    <label><input type="checkbox" name="loc[]" value="Ireland"> Ireland</label>
+    <label><input type="checkbox" name="loc[]" value="India"> India</label>
+  </fieldset>
+  <button type="submit">Search roles</button>
+</form>
+<ul id="roles" class="roleResults"></ul>
+</main>
+<footer class="siteFooter"><ul><li><a href="/accessibility">Accessibility</a></li><li><a href="/privacy">Privacy Policy</a></li><li><a href="/terms">Terms of Service</a></li><li><a href="/transparency">Transparency Reports</a></li></ul></footer>
+</body></html>

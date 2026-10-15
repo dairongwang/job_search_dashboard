@@ -80,6 +80,7 @@ def test_probe_classifies_urls(transport):
     transport({
         "indeed.com": js.FetchError("HTTP 403 from www.indeed.com", status=403, url="https://www.indeed.com/"),
         "craigslist.org": HTML_PAGE,
+        "other.example.com": HTML_PAGE,
         "careers.example.com/jobs/feed.rss": FEED,
         "careers.example.com": HTML_WITH_FEED,
         "api.example.com": b'{"jobs": []}',
@@ -87,8 +88,10 @@ def test_probe_classifies_urls(transport):
     })
     blocked = js.probe("https://www.indeed.com/")
     assert blocked.status == "blocked" and not blocked.ok and "Adzuna" in blocked.message
-    page = js.probe("https://www.craigslist.org/search/philadelphia?cat=jjj")
-    assert page.status == "html" and page.feeds == [] and "RSS feeds were retired" in page.message
+    page = js.probe("https://www.craigslist.org/search/philadelphia?cat=jjj")  # terms-based policy block: not even fetched
+    assert page.status == "blocked" and not page.ok and "terms of use" in page.message and "RSS feeds were retired" in page.message
+    page = js.probe("https://other.example.com/page", record=False)
+    assert page.status == "html" and page.feeds == []
     discovered = js.probe("https://careers.example.com/")
     assert discovered.status == "html" and discovered.feeds == ["https://careers.example.com/jobs/feed.rss"]
     feed = js.probe("https://careers.example.com/jobs/feed.rss")

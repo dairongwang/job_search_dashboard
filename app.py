@@ -10,6 +10,7 @@ import os
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -475,6 +476,9 @@ def page_research() -> None:
     enabled = config.enabled_sites()
     if not enabled:
         st.warning(f"No job sites are enabled. Open the [configuration dashboard]({CONFIG_APP_URL}) to pick some.")
+    web_ok, web_why = jc.web_page_search_allowed(config)
+    if not web_ok and any(s.provider == "html" for s in enabled):
+        st.info(f"🔒 {web_why} Web-page sites are skipped; only an administrator can switch it on (configuration dashboard → Search behaviour).")
 
     col_a, col_b = st.columns([2, 2])
     with col_a:
@@ -508,12 +512,31 @@ def page_research() -> None:
         if report.errors:
             with st.expander(f"{len(report.errors)} site(s) could not be searched", expanded=True):
                 for outcome in report.outcomes:
-                    if outcome.error:
+                    if outcome.error and outcome.form_changed:
+                        st.error(f"{outcome.name}: search form changed — {outcome.error}")
+                    elif outcome.error and outcome.policy_off:
+                        st.info(f"🔒 {outcome.name}: {outcome.error}")
+                    elif outcome.error:
                         (st.error if outcome.denied else st.warning)(f"{outcome.name}: {outcome.error}")
+                if any(o.form_changed for o in report.outcomes):
+                    st.caption(
+                        "A site's search form no longer matches the strategy version it was validated with. Open the site in the "
+                        f"[configuration dashboard]({CONFIG_APP_URL}), press *Refresh form from the site* and *Find jobs* to re-validate it."
+                    )
                 st.caption(
                     "Sites that answer HTTP 403 or return a web page do not offer a feed/API for scripts. "
                     f"Fix or disable them in the [configuration dashboard]({CONFIG_APP_URL})."
                 )
+        for outcome in report.outcomes:
+            if outcome.error:
+                continue
+            if "was learned from it" in (outcome.note or ""):
+                st.warning(
+                    f"{outcome.name}: {outcome.note} — open the site in the [configuration dashboard]({CONFIG_APP_URL}), press *Find jobs* "
+                    "and *Save criteria* to keep the learned version; until then every search re-learns it."
+                )
+            elif "the search form changed" in (outcome.note or ""):
+                st.warning(f"{outcome.name}: {outcome.note}")
         rows = report.rows()
         kept = sum(1 for r in rows if r["passes"])
         if report.fetched and kept == 0 and report.dropped:
@@ -897,6 +920,17 @@ def page_outreach() -> None:
     st.download_button("Export outreach CSV", log.to_csv(index=False).encode(), "outreach.csv", "text/csv", help=h("outreach_export"))
 
 
+def _search_form_summary(block: Any) -> str:
+    """One-line description of a web-page site's search-form block for the options column."""
+    if not isinstance(block, dict):
+        return str(block)
+    validated = block.get("validated") if isinstance(block.get("validated"), dict) else {}
+    jobs = validated.get("jobs")
+    status = f"validated {validated.get('at', '')[:10]} ({jobs} jobs)" if jobs else "not validated"
+    criteria = {k: v for k, v in (block.get("criteria") or {}).items() if v not in ("", [], None, False)}
+    return f"{block.get('strategy', '?')}@{block.get('version', '?')} {status}" + (f" {criteria}" if criteria else "")
+
+
 def page_configuration() -> None:
     """Read-only view of the configuration the app is running with.
 
@@ -935,7 +969,11 @@ def page_configuration() -> None:
                     "site": s.name,
                     "provider": (jc.provider(s.provider).label if jc.provider(s.provider) else s.provider),
                     "max results": s.max_results,
-                    "options": ", ".join(f"{k}={'••••' if 'key' in k or 'secret' in k or k == 'app_id' else v}" for k, v in s.options.items() if v not in ("", None, {}))
+                    "options": ", ".join(
+                        f"{k}={'••••' if 'key' in k or 'secret' in k or k == 'app_id' else (_search_form_summary(v) if k == 'search_form' else v)}"
+                        for k, v in s.options.items()
+                        if v not in ("", None, {}, [])
+                    )
                     or "—",
                 }
                 for s in config.sites
@@ -950,6 +988,14 @@ def page_configuration() -> None:
     )
     st.subheader("Job preferences", help=sec("app_cfg_prefs"))
     st.markdown(config_summary_md(config))
+    st.subheader("Access policy", help=sec("app_cfg_policy"))
+    allowed, why = jc.web_page_search_allowed(config)
+    (st.success if allowed else st.error)(f"{'🔓' if allowed else '🔒'} {why}")
+    stamp, summary = js.compliance.last_scan()
+    st.caption(
+        (f"Last compliance scan {stamp}: {summary}." if stamp else "No compliance scan has run yet.")
+        + (f" Runs every {config.search.compliance_scan_hours} h." if config.search.compliance_scan_hours else " Automatic scans are off.")
+    )
     st.subheader("Site registry", help=sec("app_cfg_registry"))
     st.caption("Hosts the app has checked. Inactive hosts forbid automated access and are skipped. Managed in the configuration dashboard.")
     rows = jc.load_registry().list()
@@ -957,14 +1003,14 @@ def page_configuration() -> None:
         st.dataframe(
             pd.DataFrame(
                 [
-                    {"host": r.host, "active": r.active, "status": r.status, "checks": r.checks, "updated": r.updated_at, "message": r.message}
+                    {"host": r.host, "active": r.active, "status": r.status, "reason": r.reason, "checks": r.checks, "updated": r.updated_at, "message": r.message}
                     for r in rows
                 ]
             ),
             hide_index=True,
             width="stretch",
             column_config=column_config(
-                ["host", "active", "status", "checks", "updated", "message"],
+                ["host", "active", "status", "reason", "checks", "updated", "message"],
                 active=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["active"]),
             ),
         )
@@ -996,6 +1042,14 @@ def main() -> None:
     st.sidebar.caption(
         f"Searching {len(enabled)} site(s): {', '.join(s.name for s in enabled) or 'none'}"
     )
+    allowed, why = jc.web_page_search_allowed(config)
+    if not allowed:
+        st.sidebar.caption(f"🔒 {why}")
+    if js.compliance.run_if_due():  # daily access-policy check of the configured sites, in the background
+        st.sidebar.caption("Compliance scan running in the background…")
+    stamp, summary = js.compliance.last_scan()
+    if stamp:
+        st.sidebar.caption(f"Compliance scan {stamp[:16].replace('T', ' ')}: {summary}")
     st.sidebar.markdown(f"[Configure sites & preferences ↗]({CONFIG_APP_URL})")
     if page == "Dashboard":
         page_dashboard()

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .catalog import provider
-from .schema import CONFIG_VERSION, JOB_TYPES, SCHEDULES, WORKPLACES, AppConfig
+from .schema import CONFIG_VERSION, JOB_TYPES, SCHEDULES, WORKPLACES, AppConfig, SiteConfig
 
 if TYPE_CHECKING:  # pragma: no cover
     from .registry import Registry
@@ -93,6 +93,8 @@ def validate(config: AppConfig, registry: "Registry | None" = None) -> list[Issu
             url = str(site.options.get("url") or "")
             if url and not url.lower().startswith(("http://", "https://")):
                 issues.append(Issue("error", where, "URL must start with http:// or https://."))
+            if spec.key == "html":
+                issues.extend(_search_form_issues(site, where))
             if url and registry and site.enabled:
                 blocked = registry.forbidden(url)
                 if blocked is not None:
@@ -104,6 +106,12 @@ def validate(config: AppConfig, registry: "Registry | None" = None) -> list[Issu
                             "Disable the site or re-check it in the Site registry tab.",
                         )
                     )
+
+    from .admin import web_page_search_allowed
+
+    allowed, why = web_page_search_allowed(config)
+    if not allowed and any(s.enabled and s.provider == "html" for s in config.sites):
+        issues.append(Issue("warning", "search.web_page_search", f"{why} Enabled web-page sites are skipped until an administrator switches it on."))
 
     # --- preferences ----------------------------------------------------------
     prefs = config.preferences
@@ -128,6 +136,59 @@ def validate(config: AppConfig, registry: "Registry | None" = None) -> list[Issu
     if prefs.min_skill_matches > len(prefs.skills):
         issues.append(Issue("error", "preferences.min_skill_matches", "Cannot require more skill matches than skills listed."))
 
+    return issues
+
+
+def search_form_status(site: SiteConfig) -> tuple[bool | None, str]:
+    """Has this web-page site's search form passed a test?
+
+    Returns ``(None, "")`` when the site has no search form, ``(True, text)`` when
+    the recorded last test returned jobs, ``(False, reason)`` otherwise.
+    """
+    block = site.options.get("search_form")
+    legacy = bool(site.options.get("actions"))
+    if not isinstance(block, dict) or not block:
+        if legacy:
+            return False, "legacy search-form steps ('actions') have not been validated with a Find jobs test"
+        return None, ""
+    validated = block.get("validated") if isinstance(block.get("validated"), dict) else None
+    if not validated:
+        return False, "the search form has not passed a Find jobs test yet"
+    try:
+        jobs = int(validated.get("jobs") or 0)
+    except (TypeError, ValueError):
+        jobs = 0
+    if jobs <= 0:
+        return False, f"the last Find jobs test ({validated.get('at') or 'undated'}) returned no jobs"
+    return True, f"search form validated {validated.get('at') or ''} with {jobs} job(s) ({validated.get('strategy') or ''})".strip()
+
+
+def _search_form_issues(site: SiteConfig, where: str) -> list[Issue]:
+    issues: list[Issue] = []
+    block = site.options.get("search_form")
+    if block not in (None, {}) and not isinstance(block, dict):
+        issues.append(Issue("error", where, "Option 'Search form (JSON)' must be a JSON object."))
+        return issues
+    if isinstance(block, dict) and block:
+        strategy = str(block.get("strategy") or "")
+        if not strategy:
+            issues.append(Issue("error", where, "Search form: 'strategy' is required (a site strategy such as 'yahoo-careers', or 'recipe')."))
+        if strategy == "recipe" and not (block.get("steps") or block.get("actions")):
+            issues.append(Issue("error", where, "Search form: a 'recipe' strategy needs 'steps'."))
+        if "criteria" in block and not isinstance(block.get("criteria"), dict):
+            issues.append(Issue("error", where, "Search form: 'criteria' must be a JSON object."))
+        if str(block.get("keyword_mode") or "criteria").lower() not in ("criteria", "titles"):
+            issues.append(Issue("error", where, "Search form: 'keyword_mode' must be 'criteria' (submit the saved keyword) or 'titles' (submit your preferred titles)."))
+    passed, text = search_form_status(site)
+    if passed is False and site.enabled:
+        issues.append(
+            Issue(
+                "error",
+                where,
+                f"{text}. A site that searches through its web form is only added to the job search when a test has returned jobs — "
+                "open the site's Search form panel in the configuration dashboard, fill in the criteria and press Find jobs.",
+            )
+        )
     return issues
 
 

@@ -9,8 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     JOB_SEARCH_CONFIG=/data/job_search_config.json \
     JOB_SEARCH_DB=/data/job_search.db
 
-# Build with --build-arg WITH_BROWSER=1 to include Playwright + Chromium for JavaScript-rendered job boards.
-ARG WITH_BROWSER=0
+# Playwright + Chromium (JavaScript-rendered boards, sites searched through their own form) are included by default;
+# build with --build-arg WITH_BROWSER=0 for a smaller image without them.
+ARG WITH_BROWSER=1
 
 WORKDIR /app
 COPY requirements.txt requirements-config.txt requirements-browser.txt ./

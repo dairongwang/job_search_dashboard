@@ -2,3 +2,5 @@
 streamlit>=1.50
 pandas>=2.2
 beautifulsoup4>=4.12   # web-page provider (schema.org JobPosting / CSS selectors)
+playwright>=1.45       # headless Chromium for JavaScript boards and sites searched through their own form.
+                       # The Chromium build itself is downloaded automatically on first use (or: python -m playwright install chromium)

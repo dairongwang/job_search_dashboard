@@ -57,6 +57,12 @@ def apps(config_path, tmp_path, monkeypatch):
     monkeypatch.setenv("JOB_SEARCH_DB", str(tmp_path / "test.db"))
     cfg = jc.default_config()
     cfg.sites.append(jc.SiteConfig(id="acme", provider="html", name="Acme", enabled=False, options={**jc.default_options("html"), "url": "https://careers.example.com/"}))
+    from jobsearch_sources import searchforms as sf
+
+    cfg.sites.append(
+        jc.SiteConfig(id="yahoo", provider="html", name="Yahoo (form)", enabled=False,
+                      options=sf.form_site_options(sf.get("yahoo-careers"), "https://www.yahooinc.com/careers/search.html", {"categories": ["Engineering"]}))
+    )
     jc.save_config(cfg)
 
 
@@ -123,6 +129,14 @@ def test_config_dashboard_every_widget_has_a_tooltip(apps, transport):
     # site forms render provider options from the catalog: every option widget must have help
     option_widgets = [el for el in _elements(at) if getattr(el, "key", "") and str(getattr(el, "key", "")).startswith("opt:")]
     assert option_widgets, "site option widgets should be rendered"
+    # the mirrored search-form panel (Yahoo strategy) renders its fields with tooltips too
+    form_widgets = [el for el in _elements(at) if str(getattr(el, "key", "")).startswith("sf:yahoo:")]
+    assert len(form_widgets) == 6 and all(getattr(el, "help", "") for el in form_widgets)  # 5 fields + keyword-mode checkbox
+    # and the "add a site with a search form" tab, once a strategy is chosen
+    at.selectbox(key="add-form-strategy").set_value("yahoo-careers").run()
+    assert at.text_input(key="add-form-url").value == "https://www.yahooinc.com/careers/search.html"
+    assert [el for el in _elements(at) if str(getattr(el, "key", "")).startswith("sf:new:")]
+    assert _missing(at) == []
     # import flow: upload a config so the 'Import now' button appears
     upload = [el for el in _elements(at) if getattr(el, "type", "") == "file_uploader"]
     assert upload and upload[0].help

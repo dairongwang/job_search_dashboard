@@ -198,80 +198,29 @@
       "enabled": false,
       "max_results": 20,
       "options": {
-        "url": "https://www.yahooinc.com/careers/",
-        "pages": 1,
+        "url": "https://www.yahooinc.com/careers/search.html",
+        "pages": 3,
         "render": "always",
-        "actions": [
-          {
-            "fill": {
-              "placeholder": "Key words"
-            },
-            "value": "{keyword}"
-          },
-          {
-            "click": {
-              "text": "Select job categories"
-            }
-          },
-          {
-            "click": {
-              "option": "{category}"
-            }
-          },
-          {
-            "press": "Escape"
-          },
-          {
-            "click": {
-              "text": "Select countries"
-            }
-          },
-          {
-            "click": {
-              "option": "{country}"
-            }
-          },
-          {
-            "press": "Escape"
-          },
-          {
-            "click": {
-              "text": "Select brands"
-            }
-          },
-          {
-            "click": {
-              "option": "{brands}"
-            }
-          },
-          {
-            "press": "Escape"
-          },
-          {
-            "click": {
-              "button": "Find jobs"
-            }
-          },
-          {
-            "wait": "networkidle"
-          },
-          {
-            "click": {
-              "button": "Load more"
-            },
-            "repeat": 3,
-            "optional": true,
-            "snapshot": true
+        "search_form": {
+          "strategy": "yahoo-careers",
+          "version": "2",
+          "criteria": {
+            "keyword": "",
+            "categories": [
+              "Engineering"
+            ],
+            "countries": [
+              "United States"
+            ],
+            "brands": [
+              "Yahoo",
+              "Yahoo Finance"
+            ],
+            "experience": []
           }
-        ],
-        "form_values": {
-          "category": "Engineering",
-          "country": "United States",
-          "brands": [
-            "Yahoo",
-            "Yahoo Finance"
-          ]
         },
+        "actions": [],
+        "form_values": {},
         "follow_links": "always",
         "max_detail_pages": 20,
         "delay_seconds": 1,
@@ -286,7 +235,7 @@
         "job_type_selector": "",
         "workplace": ""
       },
-      "notes": "Drives the search bar on yahooinc.com/careers like a person: keyword, job category, country, brands, Find jobs. Verify the control labels with Investigate (Render in browser) and adjust the steps if the site changes."
+      "notes": "Fills in the 'Filter jobs' form on yahooinc.com/careers/search.html (form#collapseFilterJobs: keyword, job categories, countries, brands, experience; button#search-page-find-jobs-mobile) with the 'yahoo-careers' strategy, version 2. Open the site's Search form panel in the configuration dashboard, press Find jobs, and save when jobs come back — that validates it and enables it. Older form layouts are handled by version 1 automatically."
     }
   ],
   "preferences": {

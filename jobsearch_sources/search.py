@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from jobsearch_config.admin import web_page_search_allowed
 from jobsearch_config.catalog import provider
-from jobsearch_config.registry import Registry, classify_outcome, load_registry
+from jobsearch_config.registry import Registry, block_reason, classify_outcome, load_registry
 from jobsearch_config.schema import AppConfig, SiteConfig
 from jobsearch_config.store import resolve_options
 
@@ -19,6 +20,7 @@ from .filters import Match, apply
 from .http import FetchError
 from .model import Job
 from .providers import ADAPTERS, SearchContext
+from .searchforms.base import FormChanged
 
 
 @dataclass
@@ -32,8 +34,11 @@ class SiteOutcome:
     note: str = ""
     denied: bool = False  # the site forbids automated access (403 / robots.txt / registry)
     empty: bool = False  # reachable but no listings could be extracted
+    form_changed: bool = False  # the site's search form no longer matches any known strategy version
+    policy_off: bool = False  # skipped because web-page search is switched off by the administrator
     seconds: float = 0.0
     attribution: str = ""
+    details: dict[str, Any] = field(default_factory=dict)  # structured adapter details (search-form run info …)
 
     @property
     def ok(self) -> bool:
@@ -101,15 +106,27 @@ def _site_url(site: SiteConfig) -> str:
 
 
 def search_site(
-    site: SiteConfig, config: AppConfig, keywords: list[str], registry: Registry | None = None
+    site: SiteConfig, config: AppConfig, keywords: list[str], registry: Registry | None = None, explicit: bool = False
 ) -> tuple[list[Job], SiteOutcome]:
-    """Run one site. Custom sites are checked against, and recorded in, the site registry."""
+    """Run one site. Custom sites are checked against, and recorded in, the site registry.
+
+    ``explicit`` says the keywords were asked for this run (Research-page override,
+    form test) rather than defaulted from the preferred titles — sites searched
+    through their own form only replace their saved keyword in that case (or when
+    configured with ``keyword_mode: titles``).
+    """
     spec = provider(site.provider)
     outcome = SiteOutcome(site_id=site.id, name=site.name, provider=site.provider, attribution=spec.attribution if spec else "")
     adapter = ADAPTERS.get(site.provider)
     if adapter is None:
         outcome.error = f"no adapter for provider '{site.provider}'"
         return [], outcome
+    if spec is not None and spec.key == "html":
+        allowed, why = web_page_search_allowed(config)
+        if not allowed:
+            outcome.error = f"skipped — {why} Only an administrator can switch it on (configuration dashboard → Search behaviour)."
+            outcome.policy_off = True
+            return [], outcome
     site_url = _site_url(site)
     if site_url and registry is not None:
         blocked = registry.forbidden(site_url)
@@ -126,6 +143,7 @@ def search_site(
         settings=config.search,
         options=resolve_options(site.options),
         keywords=keywords,
+        keywords_explicit=explicit,
         location=_location(config),
     )
     started = time.perf_counter()
@@ -137,6 +155,9 @@ def search_site(
         jobs = []
     except NoListings as exc:
         outcome.error, outcome.empty = str(exc), True
+        jobs = []
+    except FormChanged as exc:
+        outcome.error, outcome.form_changed = str(exc), True
         jobs = []
     except FetchError as exc:
         outcome.error = explain_fetch_error(exc)
@@ -150,10 +171,11 @@ def search_site(
     outcome.fetched = len(jobs)
     outcome.empty = outcome.empty or (not outcome.error and not jobs)
     outcome.note = "; ".join(ctx.notes)
+    outcome.details = dict(ctx.extra)
     if site_url and registry is not None:
         status, message = classify_outcome(outcome.error, outcome.denied, outcome.empty)
         try:
-            registry.record(site_url, status, message, source="search", status_code=status_code)
+            registry.record(site_url, status, message, source="search", status_code=status_code, reason=block_reason(message, status_code) if status == "forbidden" else "")
         except (OSError, ValueError):
             pass
     return jobs, outcome
@@ -184,18 +206,19 @@ def run_search(
     elif registry is False:  # type: ignore[comparison-overlap]
         registry = None
     keywords = _keywords(config, keyword)
+    explicit = keyword is not None
     sites = [s for s in config.enabled_sites() if not site_ids or s.id in site_ids]
     report = SearchReport(keywords=keywords, strict=strict)
     all_jobs: list[Job] = []
 
     if parallel and len(sites) > 1:
         with ThreadPoolExecutor(max_workers=min(6, len(sites))) as pool:
-            futures = {pool.submit(search_site, site, config, keywords, registry): site for site in sites}
+            futures = {pool.submit(search_site, site, config, keywords, registry, explicit): site for site in sites}
             collected = [future.result() for future in as_completed(futures)]
         order = {site.id: index for index, site in enumerate(sites)}
         collected.sort(key=lambda pair: order[pair[1].site_id])
     else:
-        collected = [search_site(site, config, keywords, registry) for site in sites]
+        collected = [search_site(site, config, keywords, registry, explicit) for site in sites]
 
     per_site: dict[str, int] = {}
     for jobs, outcome in collected:
@@ -245,8 +268,8 @@ def test_site(
         url = _site_url(site)
         if url and registry.forbidden(url) is not None:
             # run without the pre-check, but still record the outcome
-            jobs, outcome = search_site(site, config, _keywords(config, keyword), None)
+            jobs, outcome = search_site(site, config, _keywords(config, keyword), None, explicit=keyword is not None)
             status, message = classify_outcome(outcome.error, outcome.denied, outcome.empty)
-            registry.record(url, status, message, source="probe")
+            registry.record(url, status, message, source="probe", reason=block_reason(message) if status == "forbidden" else "")
             return jobs, outcome
-    return search_site(site, config, _keywords(config, keyword), registry)
+    return search_site(site, config, _keywords(config, keyword), registry, explicit=keyword is not None)

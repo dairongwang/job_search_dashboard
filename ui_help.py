@@ -32,7 +32,9 @@ HELP: dict[str, str] = {
     # ------------------------------------------------------------------ research
     "research_keyword": (
         "Optional one-off search phrase. Leave it **blank** to use the titles from your configuration (up to three are sent to "
-        "each site). Type something to search for that instead, just for this run — your configuration is not changed.\n\n"
+        "each site; sites searched through their own form submit the keyword saved with their criteria instead, unless "
+        "configured to use the titles). Type something to search for that instead, just for this run — your configuration "
+        "is not changed.\n\n"
         "*Example:* configured titles are `data analyst, BI analyst`; typing `analytics engineer` searches only that phrase."
     ),
     "research_sites": (
@@ -129,6 +131,88 @@ HELP: dict[str, str] = {
     "site_save": "Writes the site settings to the configuration file after validation (e.g. required options, forbidden hosts).",
     "site_remove": "Deletes this site from the configuration. Listings already saved in the tracker are unaffected.\n\n*Example:* remove a company careers feed after you have applied there.",
     "site_remove_unknown": "Deletes this entry; its provider is not known to this version of the app.\n\n*Example:* a site with provider `foo` left by a newer version of the app.",
+    # ------------------------------------------------------------------ search-form panel (web-page sites)
+    "sf_find": (
+        "Opens the site in a headless browser, fills in **this form exactly as you filled it here** (keyword box, dropdown "
+        "choices), presses the site's *Find jobs* button and lists the jobs that came back — unfiltered, so you see what the "
+        "site returns. If the page matches no known version of the form, a new version is learned from the page and this "
+        "panel switches to its controls. Nothing is saved until you press *Save criteria*. A site that searches through its "
+        "web form is only added / enabled when this test returns at least one job.\n\n*Example:* keyword `data analyst`, "
+        "categories `Engineering`, countries `United States` → 12 jobs → *Save criteria & enable site*."
+    ),
+    "sf_keyword_mode": (
+        "**Off (default):** every search submits the form exactly as saved here — the keyword you typed, or an empty box if "
+        "you left it blank, so the site's dropdown filters alone decide. **On:** the keyword box is filled with your preferred "
+        "titles from *Job preferences* instead, one search per title (up to three). A keyword typed on the Research page "
+        "always replaces either for that one run.\n\n*Example:* off + empty keyword + categories `Engineering` → all "
+        "Engineering jobs; on + titles `data analyst, BI analyst` → two searches, one per title."
+    ),
+    "sf_refresh": (
+        "Loads the page once (in a real browser when Playwright is installed) to read the dropdown choices the site offers "
+        "right now and to check which version of the site's form is live. Use it when a choice you expect is missing.\n\n"
+        "*Example:* Yahoo adds a new brand — after refreshing it appears in *Select brands*."
+    ),
+    "sf_save": (
+        "Writes the criteria you entered, the form version that matched the live page (including a version learned from the "
+        "page, kept under `search_form.learned`) and the passing test (time, number of jobs) into the site's `search_form` "
+        "option, and enables the site. From now on every search fills in the site's form "
+        "with these criteria (your titles replace the keyword).\n\n*Example:* saved with `categories: Engineering`; the next "
+        "search on the Research page submits Yahoo's form with *Engineering* ticked."
+    ),
+    "inv_add_form": (
+        "Adds the page as a web-page site driven by the matched search-form strategy — **disabled**. Open its card, fill in "
+        "the mirrored form and press Find jobs; the site is enabled only when that test returns jobs.\n\n*Example:* "
+        "yahooinc.com/careers/search.html → site `yahooinc-com-form` using `yahoo-careers@2`."
+    ),
+    "add_form_strategy": (
+        "Which site's search-form implementation to use. *Detect from the URL* picks it by host name; choose one explicitly "
+        "for a mirror or test copy of the site. Each strategy may have several versions — the newest whose fingerprint matches "
+        "the live page is used.\n\n*Example:* `Yahoo careers` for `yahooinc.com/careers/search.html`."
+    ),
+    "add_form_url": (
+        "Address of the page that shows the search form. Searches load this page, fill in the form and read the result list.\n\n"
+        "*Example:* `https://www.yahooinc.com/careers/search.html`"
+    ),
+    "add_form_id": "Unique slug for the site: lowercase letters, digits, '-' or '_'.\n\n*Example:* `yahoo-careers`",
+    "add_form_name": "Label shown in the result table's `source` column and in the sites list.\n\n*Example:* `Yahoo careers (search form)`",
+    "add_form_create": (
+        "Creates the site **with the criteria and the passing test you just ran** and enables it. The button only appears "
+        "after *Find jobs* returned at least one job; a failed test never adds a site.\n\n*Example:* after a test that "
+        "returned 12 jobs, press it once — the site shows up under Job sites as validated."
+    ),
+    "admin_token": (
+        "The administrator token of this installation — the value of the `JOB_SEARCH_ADMIN_TOKEN` environment variable on the "
+        "machine running this dashboard. Only someone who knows it can change administrator settings or lift a terms-based "
+        "block.\n\n*Example:* the value your administrator put in `.env`."
+    ),
+    "admin_web_search_toggle": (
+        "Whether the app may read web pages, drive search forms and render pages in a headless browser at all. Off = every "
+        "web-page site is skipped in searches and cannot be tested or added; feeds and API providers keep working.\n\n"
+        "*Example:* untick before an audit; tick again once the policy review is done."
+    ),
+    "admin_web_search_save": (
+        "Verifies the token, signs the new state with it and saves. A state written without the token (e.g. by editing the "
+        "JSON) does not verify and counts as off.\n\n*Example:* token + tick → web-page search ON, signed and dated."
+    ),
+    "search_scan_hours": (
+        "How often the main dashboard re-checks every custom / careers-platform site for access policy (robots.txt, HTTP "
+        "401/403, terms recorded in the registry) and disables the ones that are no longer compliant. 0 switches the "
+        "automatic scan off (cron can still run `python -m jobsearch_sources compliance-scan`).\n\n*Example:* `24` = daily."
+    ),
+    "compliance_scan_now": (
+        "Re-checks every custom and careers-platform site right now against robots.txt, HTTP access and the registry policy, "
+        "updates the registry, and disables sites that are no longer compliant (a dated note is added to the site).\n\n"
+        "*Example:* a board that started answering 403 last week is disabled and listed with the reason."
+    ),
+    "reg_override_lift": (
+        "Administrator only: marks the selected host active again, e.g. after its terms of use changed to allow automated "
+        "access. Requires the administrator token.\n\n*Example:* lift `example-board.com` after they published an API policy."
+    ),
+    "reg_override_block": (
+        "Administrator only: records that the selected host prohibits robots/scrapers by its terms. The block is sticky — no "
+        "successful fetch lifts it — and its sites are disabled by the next compliance scan.\n\n*Example:* block "
+        "`someboard.com` after reading its terms of service."
+    ),
     "site_test": (
         "Makes **one live request** with the saved settings and shows up to 8 listings — no filtering, so you see what the site "
         "actually returns. The result is written to the *Site registry* (status, active flag, timestamps). Needs internet.\n\n"
@@ -138,15 +222,17 @@ HELP: dict[str, str] = {
     "add_builtin": "Adds the provider with default options, enabled. Open its card below to set options such as country or category.\n\n*Example:* add `The Muse`, then set its Category to `Data and Analytics` on its card.",
     "add_custom_type": (
         "- **RSS / Atom feed** – the board publishes a feed (lightest).\n"
-        "- **Generic JSON API** – a documented JSON endpoint; you map fields.\n"
-        "- **Web page (HTML)** – a normal careers page; JobPosting data, job links or CSS selectors, with optional browser rendering.\n\n*Example:* `https://weworkremotely.com/categories/remote-data-jobs.rss` → RSS; `https://boards.example.com/api/jobs` → JSON; `https://example.com/careers` → Web page."
+        "- **Generic JSON API** – a documented JSON endpoint; you map fields.\n\n"
+        "Web pages are added elsewhere: *Web page with a search form* for sites searched through their form, *Investigate a "
+        "careers URL* for plain pages and careers platforms.\n\n*Example:* `https://weworkremotely.com/categories/remote-data-jobs.rss` → RSS; "
+        "`https://boards.example.com/api/jobs` → JSON."
     ),
     "add_custom_id": "Short unique identifier used in the config file and CLI. Lowercase letters, digits, `-` or `_`.\n\n*Example:* `acme-careers`",
-    "add_custom_name": "Display name shown in results.\n\n*Example:* `Acme careers page`",
+    "add_custom_name": "Display name shown in results.\n\n*Example:* `Acme careers feed`",
     "add_custom_url": (
-        "Address to fetch. Placeholders are replaced at search time: `{keyword}` (your titles), `{location}` (first non-remote "
-        "location), `{limit}`, `{page}`.\n\n*Examples:* `https://example.com/jobs.rss?q={keyword}` · "
-        "`https://boards.example.com/api/jobs?search={keyword}&per_page={limit}` · `https://example.com/careers?page={page}`"
+        "Feed or API address to fetch. Placeholders are replaced at search time: `{keyword}` (your titles), `{location}` (first "
+        "non-remote location), `{limit}`.\n\n*Examples:* `https://example.com/jobs.rss?q={keyword}` · "
+        "`https://boards.example.com/api/jobs?search={keyword}&per_page={limit}`"
     ),
     "add_custom_skip": (
         "Normally the URL is fetched once before saving to confirm it is really a feed / JSON / page and that the host allows "
@@ -170,17 +256,6 @@ HELP: dict[str, str] = {
     "inv_add": (
         "Saves the suggested site exactly as shown (enabled). Open its card afterwards to add filters or a search recipe.\n\n"
         "*Example:* adds `yahooinc-com-workday` with tenant `ouryahoo`, site `careers`."
-    ),
-    "add_platform_provider": (
-        "Applicant-tracking platform hosting the company's careers page; each exposes a public job API intended for third "
-        "parties. Use *Investigate* above if you are not sure which one a company uses.\n\n*Example:* `Greenhouse board` for "
-        "`boards.greenhouse.io/airbnb`, `Workday careers site` for `ouryahoo.wd5.myworkdayjobs.com/careers`."
-    ),
-    "add_platform_id": "Short unique identifier for this company's site. Lowercase letters, digits, `-` or `_`.\n\n*Example:* `yahoo-workday`, `airbnb-greenhouse`",
-    "add_platform_name": "Display name shown in results as the source.\n\n*Example:* `Yahoo careers`",
-    "add_platform_create": (
-        "Creates the site with the identifiers entered (required ones are validated) and enables it. Press *Test this site now* on "
-        "its card to confirm it returns listings.\n\n*Example:* Greenhouse board `airbnb` → card `airbnb-greenhouse`."
     ),
     # ------------------------------------------------------------------ config: preferences
     "pref_titles": (
@@ -254,7 +329,7 @@ SECTIONS: dict[str, str] = {
     "outreach_log": "Every outreach entry, newest first.",
     "cfg_sites": "Which job sites are searched and how. Built-in providers have ready-made adapters; custom sites read a feed, a JSON API or a web page.",
     "cfg_investigate": "One-stop check of a careers URL: robots.txt verdict, reachability, platform (public API?), page data and search-form controls, plus a ready-to-add site suggestion. Results are recorded in the Site registry.",
-    "cfg_add_site": "Add a built-in provider from the catalog, or a custom feed / API / web page by URL. Custom URLs are checked once before saving.",
+    "cfg_add_site": "Add a built-in provider from the catalog, a web page searched through its own form (tested first), or a custom feed / JSON API by URL (checked once before saving). Plain pages and careers platforms come from *Investigate a careers URL*.",
     "cfg_prefs": "What kind of jobs you want. Titles and skills steer search and ranking; location, salary, job type, schedule and workplace are filters.",
     "pref_role": "Role titles, industries, skills and words to avoid — what the job *is*.",
     "pref_location": "Where the job may be and which work modes you accept.",
@@ -262,6 +337,13 @@ SECTIONS: dict[str, str] = {
     "pref_salary": "Pay range in one currency and period; listings are converted to yearly for comparison.",
     "pref_freshness": "How old a listing may be.",
     "pref_summary": "The filters exactly as they will be applied on the next search, in plain words.",
+    "site_search_form": (
+        "Mirror of the website's own search form. Fill it in as on the site and press Find jobs to test; the site joins the "
+        "job search only after a test returns jobs. Shows the strategy (site-specific implementation) and form version in use."
+    ),
+    "reg_override": "Administrator-only changes to the registry: lift or impose terms-based blocks. Live checks never lift a terms block.",
+    "cfg_compliance": "Daily re-check of every configured custom/platform site against the access policy (terms, robots.txt, HTTP 401/403); non-compliant sites are disabled.",
+    "cfg_admin": "Administrator switch for all web-page based searching; signed with the administrator token so nobody else can change it.",
     "cfg_registry": "Per-host memory of every live check: who allows automated access and who does not. Updated by tests, URL checks and searches.",
     "cfg_search": "Cross-site behaviour of the search engine: timeouts, strictness, de-duplication, how the app identifies itself.",
     "cfg_review": "Validation results, the raw JSON, import/export and reset.",
@@ -271,6 +353,7 @@ SECTIONS: dict[str, str] = {
     "review_danger": "Irreversible-ish actions (a .bak copy is always kept).",
     "app_cfg_sites": "The sites the main app will query and their options (secrets masked). Edit them in the configuration dashboard.",
     "app_cfg_prefs": "The preferences the main app applies on the next search.",
+    "app_cfg_policy": "Whether web-page based search is allowed (administrator switch) and when the configured sites were last scanned for access-policy compliance.",
     "app_cfg_registry": "Hosts the app has checked; inactive hosts are skipped. Managed in the configuration dashboard's Site registry tab.",
 }
 
@@ -336,6 +419,9 @@ COLUMNS: dict[str, str] = {
     "label": "Visible text / placeholder / aria-label of the control — use it as the target in a search recipe, e.g. `{\"placeholder\": \"Key words\"}`.",
     "css hint": "Best-effort CSS selector for the control, for recipes that prefer `{\"css\": ...}` targets.",
     "last HTTP": "HTTP status code of the last check: 200 = OK, 403 = access refused, 0 = no response.",
+    "reason": "Why the host is inactive: `terms` (its terms prohibit robots — sticky, administrator only), `robots` (robots.txt), `http` (401/403/429); blank when active.",
+    "compliant": "Ticked when the site may still be accessed automatically (terms, robots.txt and HTTP access all allow it).",
+    "disabled": "Ticked when this scan disabled the site because it is no longer compliant.",
     "last URL": "Exact URL used for the last check of this host.",
 }
 

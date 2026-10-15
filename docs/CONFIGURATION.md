@@ -55,7 +55,7 @@ store.
 | `usajobs` | `api_key`*, `email`* | keyword, location, min salary, date posted |
 | `greenhouse` / `lever` / `ashby` / `smartrecruiters` / `recruitee` / `workable` | company identifier (`board` / `site` / `company_id` / `company` / `subdomain`), display name, platform filters | platform API filters (department, team, keyword/city for SmartRecruiters) |
 | `workday` | `url` or `tenant` + `site` (+ `host`), `facets` (by visible name), `details` | keyword (`searchText`), facets |
-| `html` | `url`*, `pages`, `render`, `actions`, `form_values`, `follow_links`, `max_detail_pages`, `delay_seconds`, `link_pattern`, `item_selector` + field selectors, `workplace` | `{keyword}` / `{location}` / `{page}` placeholders if present; otherwise filtered locally |
+| `html` | `url`*, `pages`, `render`, `search_form`, `follow_links`, `max_detail_pages`, `delay_seconds`, `link_pattern`, `item_selector` + field selectors, `workplace` (`actions` + `form_values` are the legacy form of `search_form`) | `{keyword}` / `{location}` / `{page}` placeholders if present; with `search_form`, the keyword and the saved dropdown criteria are entered into the site's own search form; otherwise filtered locally |
 | `rss` | `url`*, `title_format`, `workplace` | `{keyword}` / `{location}` placeholders in the URL if present; otherwise filtered locally |
 | `json` | `url`*, `items_path`, `mapping`, `headers`, `workplace` | `{keyword}` / `{location}` / `{limit}` placeholders if present |
 
@@ -74,11 +74,16 @@ Three custom types cover almost any source:
 | **Generic JSON API** | the site has a documented JSON endpoint | dotted-path field mapping |
 | **Web page (HTML)** | there is only a normal web page | schema.org `JobPosting` data embedded in the page → job links followed to detail pages → CSS selectors you configure |
 
-When you create a custom site the dashboard fetches the URL once and tells
-you what it found (feed items, JobPosting objects, job-looking links, or
-nothing). It refuses URLs that answer **HTTP 403** (automated access blocked),
-that robots.txt disallows, or that are the wrong kind (e.g. a feed added as a
-page), and it switches an RSS site to the feed a page advertises.
+In the configuration dashboard, *Add a site* has three tabs: **From the
+catalog** (built-in providers), **Web page with a search form** (the site's
+own form is mirrored and must return jobs before the site is added) and
+**Custom feed, API** (RSS/Atom or JSON). Plain web pages and company careers
+platforms (Workday, Greenhouse, …) are added from *Investigate a careers
+URL*, which suggests the right site type. When you create a feed/API site
+the dashboard fetches the URL once and tells you what it found. It refuses
+URLs that answer **HTTP 403** (automated access blocked), that robots.txt
+disallows, or that are the wrong kind (e.g. a web page added as a feed), and
+it switches an RSS site to the feed a page advertises.
 
 #### Site registry
 
@@ -89,6 +94,8 @@ page), and it switches an RSS site to the feed a page advertises.
 | `host` | lowercased host without `www.`; seed rows use the registrable domain and match sub-hosts |
 | `status` | `ok` · `forbidden` · `empty` (reachable, no listings) · `error` (network) |
 | `active` | `false` when the host forbids automated access — HTTP 401/403, robots.txt disallow, known terms |
+| `reason` | why it is inactive: `terms` (policy: the site's terms prohibit robots — sticky, only an administrator override lifts it), `robots`, `http` (these recover when a re-check succeeds) |
+| `last_scan` | last compliance scan of the host |
 | `message` | the warning shown to the user |
 | `source` | `builtin` · `probe` (Test / URL check) · `search` · `manual` |
 | `created_at`, `updated_at`, `checks`, `last_url`, `last_status_code` | audit trail |
@@ -97,10 +104,32 @@ The row is updated on **every** check: *Test this site now*, the URL check
 when a custom site is created, every search run, and *Re-check* in the
 Site registry tab. Consequences of `active = false`:
 
-* the site cannot be created (even with "skip the URL check"),
+* the site cannot be created (even with "skip the URL check"), and *Investigate* reports the host as forbidden without suggesting a site,
 * an enabled site on that host fails validation, so it cannot be saved enabled,
 * searches skip it and show the saved warning,
-* *Test this site now* / *Re-check* still make one live request, so the row recovers as soon as the site allows access again.
+* *Test this site now* / *Re-check* still make one live request, so an `http`/`robots` row recovers as soon as the site allows access again — a `terms` row does not: the site's terms do not change because a page loaded; an administrator lifts it with the token (*Site registry → Administrator override*).
+
+#### Daily compliance scan
+
+`jobsearch_sources.compliance.scan()` re-checks every custom / careers-platform
+site of the configuration against the registry policy, robots.txt and HTTP
+access, records the results and **disables** non-compliant sites (a dated
+`[compliance …]` note is added). It runs every `search.compliance_scan_hours`
+from the main dashboard (background thread), on demand from the
+configuration dashboard (*Site registry → Scan all sites now*) or from a
+scheduler: `python -m jobsearch_sources compliance-scan` (exit 2 when a site
+was non-compliant; `--no-disable` reports only; `--json`). Unreachable hosts
+are reported as undetermined, not disabled.
+
+#### Administrator switch for web-page based search
+
+*Search behaviour → Web-page based search — administrator setting* (or
+`python -m jobsearch_config web-search on|off [--admin-token T]`). Requires
+`JOB_SEARCH_ADMIN_TOKEN` in the environment of the process making the change;
+the value is signed with it. When off, web-page sites are skipped in searches
+(*🔒* on the Research page), cannot be tested, added or suggested; feeds and
+API providers keep working. The same token is needed to lift or impose
+terms-based blocks in the registry.
 
 The built-in seed (Indeed, Monster, Craigslist, LinkedIn, Glassdoor, ZipRecruiter,
 Dice, SimplyHired, CareerBuilder) is only a starting point; re-checking
@@ -164,6 +193,35 @@ same identifying User-Agent, skips images/fonts/media, and treats a
 the run stops and the host is recorded as forbidden. Without Playwright,
 such pages are reported as "appears to render results with JavaScript".
 Needs the `beautifulsoup4` package.
+
+**Search forms.** When the page's jobs are found through its search form
+(keyword box, category / country / brand dropdowns, *Find jobs*), set
+`search_form` — a per-site, versioned **strategy** that fills in the form on
+every search:
+
+```json
+{ "id": "yahoo-careers-form", "provider": "html", "name": "Yahoo careers (search form)", "enabled": true,
+  "options": { "url": "https://www.yahooinc.com/careers/search.html", "render": "always", "pages": 3, "follow_links": "always",
+               "search_form": { "strategy": "yahoo-careers", "version": "2",
+                                "criteria": { "categories": ["Engineering"], "countries": ["United States"], "brands": ["Yahoo", "Yahoo Finance"] },
+                                "validated": { "at": "2026-03-01T09:12:44", "jobs": 12, "strategy": "yahoo-careers@2" } } } }
+```
+
+`strategy` is a built-in site strategy (`yahoo-careers`) or `recipe` (a
+declarative strategy written in the same block); `version` is the form
+layout the site was validated with — the other versions are tried
+automatically when the live page changes, and a form that matches no known
+version is **learned from the page** (kept under `learned` once saved;
+`"learn": false` disables that), or reported as *search form changed* when
+even that is impossible. `criteria` are the values
+chosen in the configuration dashboard's **Search form** panel, which mirrors
+the website's form — every search submits them exactly as saved, keyword
+included (`keyword_mode: "titles"` puts your preferred titles in the keyword
+box instead; a Research-page keyword replaces it for one run); `validated`
+is written by a passing *Find jobs* test.
+**An enabled `search_form` site without a passing test is a validation
+error** — the site is only added to the job search once its test returned
+jobs. Full reference: [SEARCH_FORMS.md](SEARCH_FORMS.md).
 
 #### Custom RSS / Atom feed
 
@@ -242,6 +300,9 @@ on-site job in New York does not).
 | `strict_filtering` | true | See above. |
 | `dedupe_by_url` | true | Drop the same listing found on several sites. |
 | `user_agent` | `Mozilla/5.0 (compatible; JobSearchDashboard/2.0; personal job tracker)` | Sent with every request; the product token is used for robots.txt groups. |
+| `web_page_search` | true | **Administrator setting.** Whether web-page based search (HTML pages, search forms, headless browser) is allowed. Written only by `jobsearch_config.admin.set_web_page_search` / the dashboard's administrator section / `python -m jobsearch_config web-search`, which require `JOB_SEARCH_ADMIN_TOKEN`. |
+| `web_page_search_signature`, `web_page_search_changed_at` | — | HMAC-SHA256 of the state with the administrator token, and when it was set. A state that does not verify (edited by hand) counts as off wherever the token is available. |
+| `compliance_scan_hours` | 24 | How often the main app re-checks custom/platform sites for access-policy compliance (0 = never). |
 
 ## 4. Validation
 

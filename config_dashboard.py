@@ -28,9 +28,13 @@ from ui_help import COLUMNS, column_config, h, sec
 
 try:  # optional: live "Test site" / URL checks need the adapters
     import jobsearch_sources as js
+    from jobsearch_sources import browser
+    from jobsearch_sources import searchforms as sf
     from jobsearch_sources.feeds import known_site_guidance
 except Exception:  # pragma: no cover - sources are optional for the config UI
     js = None  # type: ignore[assignment]
+    sf = None  # type: ignore[assignment]
+    browser = None  # type: ignore[assignment]
 
     def known_site_guidance(url: str) -> str:  # type: ignore[misc]
         return ""
@@ -249,6 +253,397 @@ def site_form(config: jc.AppConfig, site: jc.SiteConfig) -> None:
                         width="stretch",
                         column_config=column_config(["title", "organization", "location", "job_type", "salary", "published"], salary=st.column_config.Column("salary", help=COLUMNS["salary_text"])),
                     )
+    if spec.key == "html":
+        st.divider()
+        search_form_panel(config, site)
+
+
+# ---------------------------------------------------------------------------
+# Search-form panel (mirrors the site's own search form)
+# ---------------------------------------------------------------------------
+
+
+def _form_options(strategy: Any, field: Any, live_options: dict[str, list[str]], saved: Any) -> list[str]:
+    """Choices to show for a dropdown field: live page > saved snapshot > strategy defaults, plus saved values."""
+    options = list(live_options.get(field.key) or field.options)
+    chosen = saved if isinstance(saved, list) else ([saved] if saved else [])
+    for value in chosen:
+        if value and value not in options:
+            options.append(value)  # keep a saved choice visible even if the site dropped it (the test will report it)
+    return options
+
+
+def render_form_fields(strategy: Any, criteria: dict[str, Any], live_options: dict[str, list[str]], key_prefix: str) -> dict[str, Any]:
+    """Render the strategy's fields as Streamlit widgets laid out like the site's form; returns the criteria entered."""
+    fields = strategy.fields()
+    values: dict[str, Any] = {}
+    text_fields = [f for f in fields if f.kind == "text"]
+    others = [f for f in fields if f.kind != "text"]
+    for field in text_fields:
+        values[field.key] = st.text_input(
+            field.label,
+            value=str(criteria.get(field.key) or ""),
+            placeholder=field.placeholder or field.label,
+            key=f"{key_prefix}:{field.key}",
+            help=field.help or f"The '{field.label}' box of the site's search form. Example: `data analyst`.",
+        )
+    if others:
+        cols = st.columns(min(len(others), 4))
+        for index, field in enumerate(others):
+            with cols[index % len(cols)]:
+                help_text = field.help or f"The '{field.label}' control of the site's search form; choose the values you would tick on the website."
+                saved = criteria.get(field.key)
+                if field.kind == "multiselect":
+                    options = _form_options(strategy, field, live_options, saved)
+                    default = [v for v in (saved or []) if v in options] if isinstance(saved, list) else []
+                    values[field.key] = st.multiselect(field.label, options, default=default, key=f"{key_prefix}:{field.key}", help=help_text)
+                elif field.kind == "select":
+                    options = [""] + _form_options(strategy, field, live_options, saved)
+                    index_ = options.index(saved) if saved in options else 0
+                    values[field.key] = st.selectbox(field.label, options, index=index_, key=f"{key_prefix}:{field.key}", help=help_text, format_func=lambda x: x or "(any)")
+                else:
+                    values[field.key] = st.checkbox(field.label, value=bool(saved), key=f"{key_prefix}:{field.key}", help=help_text)
+    return values
+
+
+def _adopt_learned(spec: dict[str, Any], learned_key: str, widget_prefix: str, previous: Any, entered: dict[str, Any] | None = None) -> None:
+    """Switch the panel to a version learned from the live page: its fields replace the previous ones on rerun.
+
+    What the user had entered is carried over where the new form has a matching control.
+    """
+    st.session_state[learned_key] = spec
+    learned = sf.RecipeStrategy(spec, "learned")
+    carried = sf.map_criteria(entered or {}, previous.fields(), learned.fields())
+    if entered and entered.get("keyword"):
+        carried["keyword"] = entered["keyword"]
+    st.session_state[learned_key + ":criteria"] = carried
+    for field in previous.fields():
+        st.session_state.pop(f"{widget_prefix}:{field.key}", None)
+    st.rerun()
+
+
+def _refresh_form(url: str, config: jc.AppConfig, options: dict[str, Any] | None, site_id: str, strategy: Any, live_key: str, widget_prefix: str, learned_key: str = "") -> None:
+    """Read the live page's form (version + dropdown choices) and refresh the panel's widgets with it."""
+    with st.spinner(f"Loading {url} to read its search form…"):
+        detection = sf.detect(url, config.search, options, site_id)
+    level = "error" if detection.error else ("success" if detection.ok else "warning")
+    message = detection.message + (" (read in a real browser)" if detection.rendered else (" (read from the plain page)" if not detection.error else ""))
+    st.session_state[live_key + ":message"] = (level, message)
+    if detection.learned and learned_key:
+        st.session_state[live_key] = detection.live_options
+        _adopt_learned(detection.learned, learned_key, widget_prefix, strategy)
+    if detection.live_options:
+        st.session_state[live_key] = detection.live_options
+        if learned_key and not detection.learned:
+            st.session_state.pop(learned_key, None)  # a saved version matches again
+        for field in strategy.fields():
+            st.session_state.pop(f"{widget_prefix}:{field.key}", None)  # widgets pick up the new choices on rerun
+        st.rerun()
+
+
+def _show_refresh_message(live_key: str) -> None:
+    stored = st.session_state.pop(live_key + ":message", None)
+    if stored:
+        level, message = stored
+        getattr(st, level)(message)
+
+
+def _keyword_mode_text(block: dict[str, Any], criteria: dict[str, Any], config: jc.AppConfig) -> str:
+    """Plain-words statement of what the keyword box receives on a real search."""
+    saved = str((block.get("criteria") or {}).get("keyword") or "")
+    titles = ", ".join(config.preferences.titles[:3]) or "(no titles configured)"
+    if str(block.get("keyword_mode") or "criteria") == "titles":
+        return f"On every search the keyword box gets your preferred titles — {titles} — one search per title. A keyword typed on the Research page replaces them for that run."
+    if saved:
+        return f"On every search the keyword box gets the saved keyword **{saved}** (exactly what you tested). A keyword typed on the Research page replaces it for that run."
+    return "On every search the keyword box is left **empty** — the site's own filters (the dropdowns) do the work. A keyword typed on the Research page is used for that run."
+
+
+def _test_results(test: Any, strategy: Any) -> None:
+    """Show the outcome of a Find jobs test."""
+    if test.error:
+        (st.error if test.denied or test.form_changed else st.warning)(f"Search test failed — {test.error}")
+    elif not test.jobs:
+        st.error("Search test returned no jobs. The site is not added / enabled until a test returns at least one job.")
+    else:
+        st.success(f"Search test passed — {test.summary()}.")
+    facts = [f"strategy {test.matched or test.configured}"]
+    if test.learned:
+        facts.append(f"🧭 version {test.learned.get('version')} was learned from the live page — saving keeps it")
+    elif test.changed:
+        facts.append("⚠ the live form matched a different version than configured")
+    if test.total is not None:
+        facts.append(f"site reported {test.total} matching job(s)")
+    if test.live_options:
+        facts.append("dropdown choices refreshed from the live page")
+    st.caption(" · ".join(facts) + (f" · {test.notes}" if test.notes else ""))
+    for problem in test.unknown_choices:
+        st.warning(f"The live form does not offer one of your choices — {problem}")
+    if test.jobs:
+        st.dataframe(
+            [
+                {
+                    "title": j.title, "organization": j.organization, "location": j.location, "job_type": j.job_type or "?",
+                    "salary": j.salary_text, "published": j.published, "url": j.url,
+                }
+                for j in test.jobs[:12]
+            ],
+            hide_index=True,
+            width="stretch",
+            column_config=column_config(
+                ["title", "organization", "location", "job_type", "salary", "published", "url"],
+                salary=st.column_config.Column("salary", help=COLUMNS["salary_text"]),
+                url=st.column_config.LinkColumn("listing", help=COLUMNS["url"]),
+            ),
+        )
+
+
+def search_form_panel(config: jc.AppConfig, site: jc.SiteConfig) -> None:
+    """Per-site panel that mirrors the website's search form so the user can test it with real criteria."""
+    if sf is None:
+        return
+    url = str(site.options.get("url") or "")
+    strategy = sf.configured_strategy(site.options, site.id)
+    known = sf.for_url(url) if url else []
+    st.markdown("##### Search form", help=sec("site_search_form"))
+    web_ok, web_why = jc.web_page_search_allowed(config)
+    if not web_ok:
+        st.error(f"{web_why} Tests and searches of web-page sites are not run; only an administrator can switch it on (Search behaviour tab).")
+        return
+    if strategy is None and not known:
+        st.caption(
+            "No search-form strategy is known for this page. If the site has a search form, run *Investigate a careers URL* "
+            "to list its controls and describe it as a recipe in *Search form (JSON)*, or add a strategy class for the site."
+        )
+        return
+    if strategy is None:
+        st.info(f"A search-form strategy is available for this host: **{known[0].label}** (version {known[0].version}). Fill in the form below and press Find jobs to validate it.")
+        strategy = known[0]
+    passed, status_text = jc.search_form_status(site)
+    versions = sf.candidates(site.options, url, site.id) or sf.versions_of(strategy.family)
+    version_text = ", ".join(f"v{v.version} ({v.since or 'undated'}{', learned' if getattr(v, 'learned', False) else ''})" for v in sorted(versions, key=lambda v: v.sort_key, reverse=True))
+    st.caption(
+        f"Strategy **{strategy.label}** — configured version {strategy.version}"
+        + (f" · known versions: {version_text}" if len(versions) > 1 else "")
+        + (f" · form: {strategy.form_hint}" if strategy.form_hint else "")
+    )
+    if passed:
+        st.caption(f"✅ {status_text}")
+    elif passed is False:
+        st.caption(f"⚠ {status_text} — the site cannot be enabled until a test returns jobs.")
+    block = site.options.get("search_form") if isinstance(site.options.get("search_form"), dict) else {}
+    criteria = dict(block.get("criteria") or (site.options.get("form_values") or {}))
+    if not criteria.get("keyword") and config.preferences.titles:
+        criteria["keyword"] = config.preferences.titles[0]
+    live_key = f"formopts:{site.id}"
+    learned_key = f"formlearned:{site.id}"
+    learned_spec = st.session_state.get(learned_key)
+    if learned_spec:  # a version derived from the live page (not saved yet): show *its* controls
+        learned_strategy = sf.RecipeStrategy(learned_spec, site.id)
+        criteria = {**sf.map_criteria(criteria, strategy.fields(), learned_strategy.fields()), "keyword": criteria.get("keyword", ""), **(st.session_state.get(learned_key + ":criteria") or {})}
+        strategy = learned_strategy
+        st.info(
+            f"No saved version of the search form matched the live page, so version **{strategy.version}** was learned from it "
+            f"({strategy.form_hint}). Fill in its form below and press Find jobs; saving keeps this version for future searches.",
+            icon="🧭",
+        )
+    live_options = st.session_state.get(live_key) or dict(block.get("live_options") or {})
+    if not browser.available(install=False)[0]:
+        st.caption("Headless Chromium is not installed yet — it is downloaded automatically on the first Find jobs (about 150 MB, one minute).")
+
+    st.caption(_keyword_mode_text(block, criteria, config))
+    with st.form(f"searchform-{site.id}"):
+        entered = render_form_fields(strategy, criteria, live_options, f"sf:{site.id}")
+        use_titles = st.checkbox(
+            "At search time, put my preferred titles in the keyword box instead (one search per title)",
+            value=str(block.get("keyword_mode") or "criteria") == "titles",
+            key=f"sf:{site.id}:keyword_mode",
+            help=h("sf_keyword_mode"),
+        )
+        b1, b2 = st.columns([1, 1])
+        find = b1.form_submit_button("Find jobs", type="primary", help=h("sf_find"))
+        refresh = b2.form_submit_button("Refresh form from the site", help=h("sf_refresh"))
+    result_key = f"formtest:{site.id}"
+    if refresh:
+        _refresh_form(url, config, site.options, site.id, strategy, live_key, f"sf:{site.id}", learned_key)
+    _show_refresh_message(live_key)
+    if find:
+        with st.spinner(f"Filling in the search form on {url} and pressing Find jobs…"):
+            test = sf.test_form(site, config, entered, learned=learned_spec)
+        st.session_state[result_key] = test
+        if test.live_options:
+            st.session_state[live_key] = test.live_options
+        if test.learned and test.learned is not learned_spec:
+            _adopt_learned(test.learned, learned_key, f"sf:{site.id}", strategy, entered)
+    test = st.session_state.get(result_key)
+    if test is not None:
+        _test_results(test, strategy)
+        if test.ok:
+            label = "Save criteria & enable site" if not site.enabled else "Save criteria"
+            if test.learned:
+                label += f" (keeps learned version {test.learned.get('version')})"
+            if st.button(label, key=f"sf-save-{site.id}", type="primary", help=h("sf_save")):
+                sf.mark_validated(site, test)
+                site.options["search_form"]["keyword_mode"] = "titles" if use_titles else "criteria"
+                site.enabled = True
+                for key in (f"opt:{site.id}:search_form", f"opt:{site.id}:actions", f"opt:{site.id}:form_values", result_key, learned_key, learned_key + ":criteria", f"sf:{site.id}:keyword_mode"):
+                    st.session_state.pop(key, None)
+                persist(config, f"{site.name}: search criteria saved and validated with {len(test.jobs)} job(s); the site is enabled.")
+        elif site.enabled and (test.form_changed or test.error or not test.jobs):
+            st.warning("This site is enabled but its search form no longer returns jobs. Fix the criteria and test again, or disable the site.")
+
+
+def add_form_site_panel(config: jc.AppConfig) -> None:
+    """Add a web-page site that searches through its own form — only after a test returned jobs."""
+    if sf is None:
+        st.caption("Install the search adapters (requirements.txt) to add form-driven sites.")
+        return
+    web_ok, web_why = jc.web_page_search_allowed(config)
+    if not web_ok:
+        st.error(f"{web_why} Web-page sites cannot be added or tested; only an administrator can switch it on (Search behaviour tab).")
+        return
+    families = sf.families()
+    labels = {"": "Detect from the URL (by host)"}
+    for family, versions in families.items():
+        labels[family] = f"{versions[0].label} ({family}, {len(versions)} version(s))"
+    c1, c2 = st.columns([1, 1])
+
+    def _strategy_chosen() -> None:  # prefill the page address with the strategy's known form page
+        chosen = sf.get(st.session_state.get("add-form-strategy") or "")
+        if chosen is not None and chosen.start_url and not (st.session_state.get("add-form-url") or "").strip():
+            st.session_state["add-form-url"] = chosen.start_url
+
+    family = c1.selectbox("Site strategy", list(labels), format_func=lambda k: labels[k], key="add-form-strategy", help=h("add_form_strategy"), on_change=_strategy_chosen)
+    url = c2.text_input("Page with the search form", placeholder="https://www.yahooinc.com/careers/search.html", key="add-form-url", help=h("add_form_url"))
+    c3, c4 = st.columns(2)
+    site_id = c3.text_input("Site id", placeholder="yahoo-careers", key="add-form-id", help=h("add_form_id"))
+    name = c4.text_input("Display name", placeholder="Yahoo careers (search form)", key="add-form-name", help=h("add_form_name"))
+    url = url.strip()
+    blocked_text = _blocked_message(url)
+    if blocked_text:
+        st.error(blocked_text)
+        return
+    strategies = sf.versions_of(family) if family else (sf.for_url(url) if url else [])
+    if not strategies:
+        st.info("Paste the page address of a site with a known strategy (e.g. yahooinc.com), or pick a strategy explicitly. For other sites, run Investigate and describe the form as a recipe.")
+        return
+    strategy = strategies[0]
+    configured = strategy
+    st.caption(f"Strategy **{strategy.label}** · versions: " + ", ".join(f"v{s.version} ({s.since or 'undated'})" for s in strategies) + (f" · form: {strategy.form_hint}" if strategy.form_hint else ""))
+    live_key = "formopts:new"
+    learned_key = "formlearned:new"
+    learned_spec = st.session_state.get(learned_key)
+    if learned_spec and learned_spec.get("learned_from") == url:
+        strategy = sf.RecipeStrategy(learned_spec, site_id.strip().lower() or "new-site")
+        st.info(
+            f"No known version of the search form matched this page, so version **{strategy.version}** was learned from it "
+            f"({strategy.form_hint}). Fill in its form below and press Find jobs; adding the site keeps this version.",
+            icon="🧭",
+        )
+    else:
+        learned_spec = None
+    live_options = st.session_state.get(live_key) or {}
+    criteria = {"keyword": config.preferences.titles[0] if config.preferences.titles else ""}
+    if learned_spec:
+        criteria.update(st.session_state.get(learned_key + ":criteria") or {})
+    if not browser.available(install=False)[0]:
+        st.caption("Headless Chromium is not installed yet — it is downloaded automatically on the first Find jobs (about 150 MB, one minute).")
+    with st.form("searchform-new"):
+        entered = render_form_fields(strategy, criteria, live_options, "sf:new")
+        use_titles = st.checkbox(
+            "At search time, put my preferred titles in the keyword box instead (one search per title)",
+            value=False,
+            key="sf:new:keyword_mode",
+            help=h("sf_keyword_mode"),
+        )
+        b1, b2 = st.columns([1, 1])
+        find = b1.form_submit_button("Find jobs", type="primary", help=h("sf_find"))
+        refresh = b2.form_submit_button("Refresh form from the site", help=h("sf_refresh"))
+    if (find or refresh) and not url.lower().startswith(("http://", "https://")):
+        st.error("The page address must start with http:// or https://.")
+        return
+    if refresh:
+        _refresh_form(url, config, {"search_form": {"strategy": configured.family}} if family else None, "", strategy, live_key, "sf:new", learned_key)
+    _show_refresh_message(live_key)
+    trial = jc.SiteConfig(id=site_id.strip().lower() or "new-site", provider="html", name=name.strip() or "New site", enabled=False, options=sf.form_site_options(configured, url, {}))
+    if find:
+        with st.spinner(f"Filling in the search form on {url} and pressing Find jobs…"):
+            test = sf.test_form(trial, config, entered, learned=learned_spec)
+        st.session_state["formtest:new"] = (url, test)
+        if test.live_options:
+            st.session_state[live_key] = test.live_options
+        if test.learned and test.learned is not learned_spec:
+            _adopt_learned(test.learned, learned_key, "sf:new", strategy, entered)
+    stored = st.session_state.get("formtest:new")
+    if not stored or stored[0] != url:
+        return
+    test = stored[1]
+    _test_results(test, strategy)
+    if not test.ok:
+        st.caption("Not added: a web-form site joins the job search list only when its test returns jobs.")
+        return
+    if st.button("Add site (validated)", key="add-form-btn", type="primary", help=h("add_form_create")):
+        sid = site_id.strip().lower()
+        if not re.match(r"^[a-z0-9][a-z0-9_-]{0,39}$", sid):
+            st.error("Site id must be lowercase letters, digits, '-' or '_'.")
+        elif config.get_site(sid):
+            st.error("That site id already exists.")
+        elif jc.load_registry().forbidden(url) is not None:
+            st.error(f"Not saved — {jc.load_registry().forbidden(url).host} forbids automated access (site registry).")
+        else:
+            site = jc.SiteConfig(id=sid, provider="html", name=name.strip() or sid, enabled=True, options=sf.form_site_options(configured, url, {}))
+            sf.mark_validated(site, test)
+            site.options["search_form"]["keyword_mode"] = "titles" if use_titles else "criteria"
+            config.upsert_site(site)
+            st.session_state.pop("formtest:new", None)
+            st.session_state.pop(learned_key, None)
+            st.session_state.pop(learned_key + ":criteria", None)
+            persist(config, f"Added {site.name} — validated with {len(test.jobs)} job(s) and enabled. Searches will fill in its form with these criteria.")
+
+
+def compliance_panel(config: jc.AppConfig, registry: Any) -> None:
+    """Daily access-policy scan of the configured sites: status, run now, last results."""
+    st.subheader("Compliance scan", help=sec("cfg_compliance"))
+    stamp, summary = js.compliance.last_scan(registry) if js is not None else ("", "")
+    hours = int(config.search.compliance_scan_hours or 0)
+    st.caption(
+        (f"Last scan: **{stamp}** — {summary}" if stamp else "No scan has run yet.")
+        + (f" · runs automatically every {hours} h from the main dashboard" if hours else " · automatic scans are off (compliance_scan_hours = 0)")
+        + " · cron / Task Scheduler: `python -m jobsearch_sources compliance-scan`"
+    )
+    if js is not None and st.button("Scan all sites now", key="compliance-scan-now", help=h("compliance_scan_now")):
+        with st.spinner("Re-checking every custom and careers-platform site against robots.txt, HTTP access and the registry policy…"):
+            report = js.compliance.scan(config, registry)
+        st.session_state["compliance-report"] = report.to_dict()
+        if report.config_saved:
+            st.session_state.pop("config", None)
+            st.session_state["flash"] = f"Compliance scan: {report.summary()}"
+            st.rerun()
+    data = st.session_state.get("compliance-report")
+    if data:
+        (st.success if not any(r["compliant"] is False for r in data["results"]) else st.error)(f"{data['checked_at']}: {data['summary']}")
+        st.dataframe(
+            [
+                {"site": r["name"], "host": r["host"], "compliant": bool(r["compliant"]), "reason": r["reason"], "disabled": r["disabled"], "message": r["message"]}
+                for r in data["results"]
+            ],
+            hide_index=True,
+            width="stretch",
+            column_config=column_config(
+                ["site", "host", "compliant", "reason", "disabled", "message"],
+                compliant=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["compliant"]),
+                disabled=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["disabled"]),
+            ),
+        )
+
+
+def _blocked_message(url: str) -> str:
+    """Refusal text when the URL's host forbids automated access ("" when it does not)."""
+    blocked = jc.load_registry().forbidden(url) if url else None
+    if blocked is None:
+        return ""
+    why = "by its terms of use" if blocked.policy_block else {"robots": "by robots.txt", "http": "(it answers scripts with HTTP 401/403)"}.get(blocked.reason, "")
+    return f"{blocked.host} prohibits automated access {why} — {blocked.message} The site cannot be added."
 
 
 def investigate_panel(config: jc.AppConfig) -> None:
@@ -297,7 +692,23 @@ def investigate_panel(config: jc.AppConfig) -> None:
                 "Recipe targets by visible text: `{\"fill\": {\"placeholder\": \"Key words\"}, \"value\": \"{keyword}\"}`, "
                 "`{\"click\": {\"text\": \"Select countries\"}}`, `{\"click\": {\"option\": \"{country}\"}}`, `{\"click\": {\"button\": \"Find jobs\"}}`."
             )
+    if report.get("form_strategies"):
+        matched = report.get("form_strategy_matched")
+        (st.success if matched else st.warning)(
+            f"Search-form strategies registered for this site: {', '.join(report['form_strategies'])} — "
+            + (f"the live page matches **{matched}**." if matched else "none matches this page (redesigned form, or the form lives on another page).")
+        )
+    blocked_text = _blocked_message(url.strip())
+    if blocked_text:
+        st.error(blocked_text)
+    web_ok, web_why = jc.web_page_search_allowed(config)
     suggestion = report.get("suggested_site")
+    if suggestion and blocked_text:
+        st.caption("No site is suggested for a host that forbids automated access.")
+        suggestion = None
+    if suggestion and suggestion.get("provider") == "html" and not web_ok:
+        st.warning(f"The suggested web-page site cannot be added: {web_why}")
+        suggestion = None
     if suggestion:
         with st.expander("Suggested site configuration", expanded=True):
             st.code(json.dumps(suggestion, indent=2), language="json")
@@ -306,45 +717,33 @@ def investigate_panel(config: jc.AppConfig) -> None:
             elif st.button("Add suggested site", key="inv-add", type="primary", help=h("inv_add")):
                 config.upsert_site(jc.SiteConfig.from_dict(suggestion))
                 persist(config, f"Added {suggestion['name']}. Open its card to adjust filters, then test it.")
+    form_suggestion = report.get("suggested_form_site")
+    if form_suggestion and (blocked_text or not web_ok):
+        form_suggestion = None
+    if form_suggestion and form_suggestion != suggestion:
+        with st.expander("Suggested search-form site (fills in the page's own form on every search)", expanded=True):
+            st.code(json.dumps({k: v for k, v in form_suggestion.items() if k != "options"} | {"options": {k: v for k, v in form_suggestion["options"].items() if v not in ("", [], {}, None)}}, indent=2), language="json")
+            if config.get_site(form_suggestion["id"]):
+                st.info(f"A site with id `{form_suggestion['id']}` already exists.")
+            elif st.button("Add search-form site (disabled until tested)", key="inv-add-form", help=h("inv_add_form")):
+                config.upsert_site(jc.SiteConfig.from_dict(form_suggestion))
+                persist(config, f"Added {form_suggestion['name']} (disabled). Open its card, fill in the Search form panel and press Find jobs to validate and enable it.")
 
 
 def add_site_panel(config: jc.AppConfig) -> None:
     st.subheader("Add a site", help=sec("cfg_add_site"))
     existing = {s.provider for s in config.sites}
-    tab_builtin, tab_platform, tab_custom = st.tabs(["From the catalog", "Company careers platform", "Custom feed, API or web page"])
+    tab_builtin, tab_form, tab_custom = st.tabs(["From the catalog", "Web page with a search form", "Custom feed, API"])
 
-    with tab_platform:
-        spec = st.selectbox("Platform", jc.platform_providers(), format_func=lambda s: s.label, key="add-platform-kind", help=h("add_platform_provider"))
-        st.caption(spec.description)
-        c1, c2 = st.columns(2)
-        site_id = c1.text_input("Site id", placeholder="yahoo-workday", key="add-platform-id", help=h("add_platform_id"))
-        name = c2.text_input("Display name", placeholder="Yahoo careers", key="add-platform-name", help=h("add_platform_name"))
-        values: dict[str, Any] = {}
-        cols = st.columns(2)
-        for index, opt in enumerate([o for o in spec.options if o.required or o.key in ("url", "company", "company_name")]):
-            with cols[index % 2]:
-                values[opt.key] = render_option(jc.SiteConfig(id="new", provider=spec.key), opt, f"add-platform:{spec.key}")
-        if st.button("Create platform site", key="add-platform-btn", help=h("add_platform_create")):
-            sid = site_id.strip().lower()
-            if not re.match(r"^[a-z0-9][a-z0-9_-]{0,39}$", sid):
-                st.error("Site id must be lowercase letters, digits, '-' or '_'.")
-            elif config.get_site(sid):
-                st.error("That site id already exists.")
-            else:
-                options = jc.default_options(spec.key)
-                options.update({k: v for k, v in values.items() if v not in ("", None)})
-                site = jc.SiteConfig(id=sid, provider=spec.key, name=name.strip() or sid, enabled=True, options=options)
-                if spec.key == "workday" and options.get("url") and not (options.get("tenant") and options.get("site")):
-                    try:
-                        from jobsearch_sources.ats import workday_base
-
-                        base, tenant, wd_site = workday_base(options)
-                        options.update({"tenant": tenant, "site": wd_site, "host": base.replace("https://", "")})
-                    except ValueError as exc:
-                        st.error(str(exc))
-                        st.stop()
-                config.upsert_site(site)
-                persist(config, f"Created {site.name}. Press 'Test this site now' on its card to confirm it returns listings.")
+    with tab_form:
+        st.markdown(
+            '<p class="note">For sites whose jobs are found through their own search form (keywords, category / country / brand '
+            "dropdowns, a <em>Find jobs</em> button). The same form is shown here; fill it in as you would on the website and "
+            "press <em>Find jobs</em>. The site is added to the job search list only when the test returns jobs, and every "
+            "later search fills in the form with these criteria.</p>",
+            unsafe_allow_html=True,
+        )
+        add_form_site_panel(config)
 
     with tab_builtin:
         candidates = [spec for spec in jc.builtin_providers() if spec.key not in existing]
@@ -373,18 +772,20 @@ def add_site_panel(config: jc.AppConfig) -> None:
                 persist(config, f"Added {site.name}. Review its options below, then enable it.")
 
     with tab_custom:
-        spec = st.selectbox("Type", jc.custom_providers(), format_func=lambda s: s.label, key="add-custom-kind", help=h("add_custom_type"))
+        feed_or_api = [spec for spec in jc.custom_providers() if spec.key in ("rss", "json")]
+        spec = st.selectbox("Type", feed_or_api, format_func=lambda s: s.label, key="add-custom-kind", help=h("add_custom_type"))
         st.caption(spec.description)
         st.info(
-            "Paste a **feed, API or web-page address**. Web pages are read for schema.org JobPosting data, job links or "
-            "CSS selectors you provide — the app honours robots.txt, identifies itself and does not run JavaScript. "
-            "Indeed, Monster, LinkedIn, Glassdoor and Craigslist prohibit automated access and block scripts; Adzuna "
-            "carries much of the same inventory.",
+            "Paste the address of an **RSS/Atom feed or a JSON API**. A careers page that advertises a feed is switched to "
+            "that feed automatically. For a page whose jobs are behind a search form use the *Web page with a search form* "
+            "tab; other web pages and company careers platforms (Workday, Greenhouse, …) are added through *Investigate a "
+            "careers URL* above. Indeed, Monster, LinkedIn, Glassdoor and Craigslist prohibit automated access and block "
+            "scripts; Adzuna carries much of the same inventory.",
             icon="ℹ️",
         )
         c1, c2 = st.columns(2)
         site_id = c1.text_input("Site id", placeholder="acme-careers", key="add-custom-id", help=h("add_custom_id"))
-        name = c2.text_input("Display name", placeholder="Acme careers page", key="add-custom-name", help=h("add_custom_name"))
+        name = c2.text_input("Display name", placeholder="Acme careers feed", key="add-custom-name", help=h("add_custom_name"))
         url = st.text_input("URL", placeholder="https://example.com/jobs.rss?q={keyword}", key="add-custom-url", help=h("add_custom_url"))
         guidance = known_site_guidance(url) if url.strip() else ""
         if guidance:
@@ -419,7 +820,7 @@ def add_site_panel(config: jc.AppConfig) -> None:
                         .replace("{page}", "1")
                     )
                     with st.spinner("Checking the URL…"):
-                        result = js.probe(probe_url, config.search, expect=spec.key if spec.key in ("json", "html") else "feed")
+                        result = js.probe(probe_url, config.search, expect="json" if spec.key == "json" else "feed")
                     if result.status == "html" and result.feeds and spec.key == "rss":
                         clean_url = result.feeds[0]
                         message = f" The page advertised a feed, so the site uses {clean_url} instead."
@@ -428,9 +829,6 @@ def add_site_panel(config: jc.AppConfig) -> None:
                         if result.registry_status == "forbidden":
                             st.caption("Recorded in the site registry as forbidden; the site cannot be added until a re-check succeeds.")
                         st.stop()
-                    elif spec.key == "html" and result.items == 0:
-                        st.warning(result.message)
-                        message = " No listings were detected on the page; configure CSS selectors on the site card below, or use 'Test this site now'."
                     else:
                         message = f" Check: {result.message}"
                 options = jc.default_options(spec.key)
@@ -677,6 +1075,7 @@ def page_registry(config: jc.AppConfig) -> None:
                     "host": r.host,
                     "active": r.active,
                     "status": r.status,
+                    "reason": r.reason,
                     "checks": r.checks,
                     "created": r.created_at,
                     "updated": r.updated_at,
@@ -690,9 +1089,9 @@ def page_registry(config: jc.AppConfig) -> None:
             hide_index=True,
             width="stretch",
             column_config=column_config(
-                ["host", "active", "status", "checks", "created", "updated", "source", "last HTTP", "last URL", "message"],
+                ["host", "active", "status", "reason", "checks", "created", "updated", "source", "last HTTP", "last URL", "message"],
                 active=st.column_config.CheckboxColumn(disabled=True, help=COLUMNS["active"]),
-                source=st.column_config.Column("source", help="Who wrote the row: builtin seed, probe (Test / URL check), search, or manual."),
+                source=st.column_config.Column("source", help="Who wrote the row: builtin seed, probe (Test / URL check), search, scan (compliance), or manual."),
             ),
         )
     c1, c2 = st.columns([2, 1])
@@ -701,7 +1100,7 @@ def page_registry(config: jc.AppConfig) -> None:
             st.selectbox(
                 "Host",
                 [r.host for r in rows],
-                format_func=lambda name: f"{name} ({'active' if registry.rows[name].active else 'inactive'})",
+                format_func=lambda name: f"{name} ({'active' if registry.rows[name].active else 'inactive' + (' — terms' if registry.rows[name].policy_block else '')})",
                 help=h("reg_host"),
             )
             if rows
@@ -726,9 +1125,36 @@ def page_registry(config: jc.AppConfig) -> None:
             f"{result.message} → registry: status {row.status}, active {'yes' if row.active else 'no'}, checked {row.checks}× (updated {row.updated_at})."
         )
     if remove and host:
-        registry.remove(host)
-        st.session_state["flash"] = f"Removed {host} from the registry."
-        st.rerun()
+        if registry.rows[host].policy_block:
+            st.error(f"{host} is blocked by its terms of use; only an administrator can lift that (override below).")
+        else:
+            registry.remove(host)
+            st.session_state["flash"] = f"Removed {host} from the registry."
+            st.rerun()
+    if host and registry.rows[host].policy_block:
+        st.warning(f"**{host}** prohibits automated access by its terms of use — {registry.rows[host].message} Live checks never lift this block.")
+
+    st.subheader("Administrator override", help=sec("reg_override"))
+    st.caption("Lift a terms-based block (if the site's terms changed) or impose one. Requires the administrator token (`JOB_SEARCH_ADMIN_TOKEN`).")
+    o1, o2, o3 = st.columns([2, 1, 1])
+    token = o1.text_input("Administrator token", type="password", key="reg-admin-token", help=h("admin_token"))
+    lift = o2.button("Lift the block", disabled=not host or registry.rows.get(host) is None or registry.rows[host].active, help=h("reg_override_lift"))
+    impose = o3.button("Block by terms", disabled=not host or registry.rows.get(host) is None or not registry.rows[host].active, help=h("reg_override_block"))
+    if (lift or impose) and host:
+        if not jc.admin_configured():
+            st.error(f"No administrator token is configured: set {jc.ENV_ADMIN_TOKEN} in the environment of this dashboard.")
+        elif not jc.verify_token(token):
+            st.error("The administrator token is wrong.")
+        elif lift:
+            registry.set_active(host, True, message="Block lifted by the administrator.")
+            st.session_state["flash"] = f"{host}: block lifted by the administrator."
+            st.rerun()
+        else:
+            registry.set_active(host, False, message=f"{host} prohibits automated access by its terms of use (recorded by the administrator).", reason="terms")
+            st.session_state["flash"] = f"{host}: blocked by terms (administrator)."
+            st.rerun()
+
+    compliance_panel(config, registry)
     with st.expander("Maintenance"):
         m1, m2 = st.columns(2)
         if m1.button("Re-check all hosts", disabled=js is None or not rows, help=h("reg_recheck_all")):
@@ -767,9 +1193,37 @@ def page_search(config: jc.AppConfig) -> None:
         user_agent = c2.text_input("User-Agent header", value=s.user_agent, help=h("search_user_agent"))
         strict = st.checkbox("Strict filtering (hide listings that fail a filter)", value=s.strict_filtering, help=h("search_strict"))
         dedupe = st.checkbox("De-duplicate by listing URL across sites", value=s.dedupe_by_url, help=h("search_dedupe"))
+        scan_hours = st.number_input("Compliance scan interval (hours, 0 = off)", min_value=0, max_value=720, value=int(s.compliance_scan_hours), help=h("search_scan_hours"))
         if st.form_submit_button("Save search behaviour", type="primary", help=h("search_save")):
-            config.search = jc.SearchSettings(timeout_seconds=int(timeout), strict_filtering=strict, dedupe_by_url=dedupe, user_agent=user_agent)
+            config.search = jc.SearchSettings(
+                timeout_seconds=int(timeout), strict_filtering=strict, dedupe_by_url=dedupe, user_agent=user_agent,
+                compliance_scan_hours=int(scan_hours),
+                web_page_search=s.web_page_search, web_page_search_signature=s.web_page_search_signature, web_page_search_changed_at=s.web_page_search_changed_at,
+            )
             persist(config, "Search behaviour saved.")
+
+    st.subheader("Web-page based search — administrator setting", help=sec("cfg_admin"))
+    allowed, why = jc.web_page_search_allowed(config)
+    (st.success if allowed else st.error)(why)
+    st.markdown(
+        '<p class="note">Reading web pages, driving search forms and headless-browser rendering are switched on or off here for the '
+        "whole app. The setting is signed with the administrator token; it can only be changed with that token, and a value edited "
+        "without it is treated as <b>off</b>. Built-in API providers and feeds are not affected.</p>",
+        unsafe_allow_html=True,
+    )
+    if not jc.admin_configured():
+        st.info(f"No administrator token is configured in this process. Set `{jc.ENV_ADMIN_TOKEN}` (e.g. in `.env`) for the person allowed to change this setting, then restart the configuration dashboard.", icon="🔐")
+    with st.form("admin-web-search"):
+        a1, a2 = st.columns([2, 1])
+        token = a1.text_input("Administrator token", type="password", help=h("admin_token"))
+        enable = a2.checkbox("Allow web-page based search", value=bool(s.web_page_search), help=h("admin_web_search_toggle"))
+        if st.form_submit_button("Apply as administrator", type="primary", help=h("admin_web_search_save"), disabled=not jc.admin_configured()):
+            try:
+                jc.set_web_page_search(config, enable, token)
+            except jc.AdminRequired as exc:
+                st.error(f"Refused — {exc}")
+            else:
+                persist(config, f"Web-page based search switched {'ON' if enable else 'OFF'} by the administrator.")
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 # Configuration dashboard (config_dashboard.py) — can be installed on its own.
 # jobsearch_config itself has no third-party dependencies; Streamlit is only for the UI.
 streamlit>=1.50
-beautifulsoup4>=4.12   # only for the 'Test this site' / URL check of web-page sites
+beautifulsoup4>=4.12   # 'Test this site' / URL check of web-page sites
+playwright>=1.45       # 'Find jobs' tests of search-form sites run in headless Chromium (downloaded automatically on first use)

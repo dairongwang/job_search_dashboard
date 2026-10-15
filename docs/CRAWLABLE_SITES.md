@@ -22,8 +22,9 @@ python -m jobsearch_sources investigate https://www.yahooinc.com/careers/ --rend
 
 Anything else (a company's own careers page, a university board, a niche
 board) is handled by the **Web page** provider: JobPosting structured data,
-job links, CSS selectors, browser rendering and — new — **search-form
-recipes** that drive the page's own search like a person.
+job links, CSS selectors, browser rendering and **search-form strategies**
+(site-by-site, versioned; plus JSON recipes) that drive the page's own
+search like a person — see [SEARCH_FORMS.md](SEARCH_FORMS.md).
 
 ## 2. Career-site platforms and their public job endpoints
 
@@ -61,9 +62,24 @@ Workday's facet ids automatically:
 If a name does not exist, the run reports the available choices. Job pages
 are fetched for the description, time type and country.
 
-**B. Search-form recipe** — site `yahoo-careers-form`: a Web page site with
-`render: always` and these steps, executed in headless Chromium exactly as
-a person would:
+**B. Search-form strategy** — site `yahoo-careers-form`: a Web page site with
+`render: always` and `search_form: {"strategy": "yahoo-careers", "version": "2", "criteria": {...}}`.
+The built-in strategy (`jobsearch_sources/searchforms/yahoo.py`) drives the
+*Filter jobs* form of `careers/search.html` — `<form id="collapseFilterJobs" method="POST">`
+with the keyword box (`name="keyword"`), the *Select job categories / countries /
+brands / experience* checkbox dropdowns and `<button id="search-page-find-jobs-mobile" type="submit">Find jobs</button>` —
+then reads `#tableJobListing` and presses *Load more*. In the configuration
+dashboard the site card shows the same form; fill it in, press **Find jobs**,
+and save when jobs come back (the site is only enabled after a passing test).
+Version 1 of the strategy covers the earlier search bar (*Key words*,
+*Select job categories*, *Select countries*, *Select brands*, *Find jobs*);
+the newest version whose fingerprint matches the live page is used, and a
+page matching neither is reported as *search form changed*. See
+[SEARCH_FORMS.md](SEARCH_FORMS.md).
+
+The same thing written as a hand-made **recipe** (the declarative form of a
+strategy, for sites without a class) — the steps below are what version 1
+does, executed in headless Chromium exactly as a person would:
 
 ```json
 [
@@ -77,7 +93,7 @@ a person would:
 ]
 ```
 
-with `form_values = {"category": "Engineering", "country": "United States", "brands": ["Yahoo", "Yahoo Finance"]}`
+with `criteria = {"category": "Engineering", "country": "United States", "brands": ["Yahoo", "Yahoo Finance"]}`
 (`{keyword}` comes from your titles; a list value repeats its step per item).
 Results are read from each snapshot; job links are followed to their pages
 for JobPosting data. Run *Investigate* with *Render in browser* first: it
@@ -95,7 +111,8 @@ live page.
 | `{"press": "Enter"}` (+ optional `"target"`) | key press |
 | `{"wait": T}` / `"networkidle"` / `{"seconds": 2}` | wait for an element, network idle, or a pause |
 | `{"scroll": "bottom"}` | scroll down (infinite lists) |
-| modifiers | `"repeat": N`, `"snapshot": true` (capture results after the step), `"optional": true` (ignore a missing element), `"timeout_ms"`, `"settle_ms"` |
+| `{"remember": T}` … `{"wait_change": T}` | store an element's content, later wait until it changed (pages that pre-render a result list) |
+| modifiers | `"repeat": N`, `"snapshot": true` (capture results after the step), `"optional": true` (ignore a missing element), `"timeout_ms"`, `"settle_ms"`, `"force": true` (operate a control hidden by the responsive layout through the DOM) |
 
 Targets `T`: a CSS string or `{"css"}`, `{"text"}` (partial visible text),
 `{"exact_text"}`, `{"placeholder"}`, `{"label"}`, `{"button"}` (button or link
